@@ -1,3 +1,5 @@
 <div>
-    {{-- To attain knowledge, add things every day; To attain wisdom, subtract things every day. --}}
-</div>
+    <h1>Tree</>
+    <livewire:tree-view />
+</divve>
+

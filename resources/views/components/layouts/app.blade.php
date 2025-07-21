@@ -72,6 +72,7 @@
 
     <flux:text class="mt-2 mb-6 text-base">Here's what's new today</flux:text>
 
+    {{ $slot }}
     <flux:separator variant="subtle" />
 </flux:main>
 
