@@ -1,11 +1,11 @@
 <div class="p-6 space-y-6">
     {{-- Header --}}
     <div class="flex items-center gap-3">
-        <flux:heading size="lg" class="flex-1">Bäume</flux:heading>
+        <flux:heading size="lg" class="flex-1">Organisationseinheit</flux:heading>
 
         {{-- Neu = open new tab that creates a draft and redirects to editor --}}
         <a href="{{ route('importer.new') }}" wire:navigate>
-            <flux:button variant="primary">Neu</flux:button>
+            <flux:button variant="primary" class="cursor-pointer">Neu</flux:button>
         </a>
     </div>
 
@@ -37,7 +37,7 @@
                 </div>
             </a>
         @empty
-            <div class="text-zinc-500">Noch keine Bäume vorhanden.</div>
+            <div class="text-zinc-500">Noch keine OEs vorhanden.</div>
         @endforelse
     </div>
 </div>
