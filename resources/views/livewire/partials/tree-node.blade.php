@@ -1,16 +1,17 @@
 @php
-    // helpers to match the edit state
-    $isEditingName = $editNodePath === $path && $editField === 'name';
-    $isEditingApp  = $editNodePath === $path && $editField === 'appName';
+    // Safe helpers
+    $nodeKey = implode('-', $path);
+    $isEditingName = isset($editNodePath, $editField) && $editNodePath === $path && $editField === 'name';
+    $isEditingApp  = isset($editNodePath, $editField) && $editNodePath === $path && $editField === 'appName';
     $canDelete     = $node['deletable'] ?? false;
+    $isSelected    = isset($selectedNodePath) && $selectedNodePath === $path;
 @endphp
 
-<li class="pl-4 border-l-2 border-gray-300 relative">
+<li class="pl-4 border-l-2 border-gray-300 relative"
+    wire:key="node-{{ $nodeKey }}">
     <div
         wire:click.prevent="selectNode({{ json_encode($path) }})"
-        class="flex items-center gap-2 cursor-pointer
-            {{ $selectedNodePath === $path ? 'bg-blue-100 font-semibold' : '' }}
-            hover:bg-blue-50 rounded px-2 py-1"
+        class="flex items-center gap-2 cursor-pointer {{ $isSelected ? 'bg-blue-100 font-semibold' : '' }} hover:bg-blue-50 rounded px-2 py-1"
     >
         <flux:icon.folder class="w-5 h-5 text-gray-500" />
 
@@ -20,6 +21,7 @@
                 <input
                     type="text"
                     class="px-1 py-0.5 border rounded text-sm"
+                    wire:key="edit-name-{{ $nodeKey }}"
                     wire:model.defer="editValue"
                     wire:keydown.enter="saveInlineEdit"
                     wire:keydown.escape="cancelInlineEdit"
@@ -39,11 +41,12 @@
 
         {{-- APP NAME (double-click to edit) --}}
         <div class="flex items-center gap-1">
-            <span class="text-xs text-gray-500">App:</span>
+            <span class="text-xs text-gray-500">Nscale:</span>
             @if ($isEditingApp)
                 <input
                     type="text"
                     class="px-1 py-0.5 border rounded text-xs"
+                    wire:key="edit-app-{{ $nodeKey }}"
                     wire:model.defer="editValue"
                     wire:keydown.enter="saveInlineEdit"
                     wire:keydown.escape="cancelInlineEdit"
@@ -58,7 +61,7 @@
                 >
                     {{ $node['appName'] ?? $node['name'] }}
                 </span>
-        @endif
+            @endif
         </div>
 
         {{-- DELETE (only if deletable) --}}
