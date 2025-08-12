@@ -9,7 +9,13 @@ Route::get('/', function () {
 })->name('home');
 
 Route::get("/importer", Importer::class)->name('importer');
-
+Route::get('/download-excel/{filename}', function ($filename) {
+    $path = 'temp/' . $filename;
+    if (!Storage::exists($path)) {
+        abort(404);
+    }
+    return response()->download(storage_path('app/private/' . $path))->deleteFileAfterSend(true);
+})->name('download-excel');
 
 
 Route::middleware(['auth'])->group(function () {
