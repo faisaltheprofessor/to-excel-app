@@ -29,12 +29,11 @@
         <flux:button x-data x-on:click="$flux.dark = ! $flux.dark" icon="moon" variant="subtle" aria-label="Toggle dark mode" />
     </flux:navbar>
 
-    <flux:dropdown position="top" align="start">
-        <flux:profile avatar="#" />
-
-        <flux:menu>
-            <flux:menu.item icon="arrow-right-start-on-rectangle">Logout</flux:menu.item>
-        </flux:menu>
+    <flux:dropdown>
+        <flux:navbar.item icon:trailing="chevron-down">Habibi</flux:navbar.item>
+        <flux:navmenu>
+            <flux:navmenu.item href="#">Logout</flux:navmenu.item>
+        </flux:navmenu>
     </flux:dropdown>
 </flux:header>
 
