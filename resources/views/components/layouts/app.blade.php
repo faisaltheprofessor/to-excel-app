@@ -26,21 +26,13 @@
     <flux:spacer />
 
     <flux:navbar class="me-4">
-        <flux:navbar.item icon="magnifying-glass" href="#" label="Search" />
-        <flux:navbar.item class="max-lg:hidden" icon="cog-6-tooth" href="#" label="Settings" />
-        <flux:navbar.item class="max-lg:hidden" icon="information-circle" href="#" label="Help" />
+        <flux:button x-data x-on:click="$flux.dark = ! $flux.dark" icon="moon" variant="subtle" aria-label="Toggle dark mode" />
     </flux:navbar>
 
     <flux:dropdown position="top" align="start">
         <flux:profile avatar="#" />
 
         <flux:menu>
-            <flux:menu.radio.group>
-                <flux:menu.radio checked>Habibi</flux:menu.radio>
-            </flux:menu.radio.group>
-
-            <flux:menu.separator />
-
             <flux:menu.item icon="arrow-right-start-on-rectangle">Logout</flux:menu.item>
         </flux:menu>
     </flux:dropdown>
@@ -69,7 +61,7 @@
 <flux:main container>
     <flux:heading size="xl" level="1">Good afternoon, Habibi</flux:heading>
 
-    <flux:text class="mt-2 mb-6 text-base">Here's what's new today</flux:text>
+    <flux:text class="mt-2 mb-6 text-base">Importer-Datei erstellen</flux:text>
 
     {{ $slot }}
     <flux:separator variant="subtle" />
