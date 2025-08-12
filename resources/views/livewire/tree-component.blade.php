@@ -1,7 +1,7 @@
 <div class="relative pb-24"> {{-- Abstand nach unten, damit Buttons nicht überlappen --}}
     <div class="mb-4 flex items-center gap-4">
         <flux:input wire:model.defer="newNodeName" placeholder="Neuer Knotenname" class="flex-1" />
-        <flux:input wire:model.defer="newAppName"  placeholder="App-Name (optional)" class="flex-1" />
+        <flux:input wire:model.defer="newAppName"  placeholder="Name im Nscale (optional)" class="flex-1" />
         <label class="flex items-center gap-1 cursor-pointer select-none">
             <input type="checkbox" wire:model="addWithStructure" class="form-checkbox" />
             mit Ablagen
