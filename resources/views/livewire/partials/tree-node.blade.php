@@ -1,5 +1,5 @@
 @php
-    // Safe helpers
+    $node = is_array($node) ? $node : [];
     $nodeKey = implode('-', $path);
     $isEditingName = isset($editNodePath, $editField) && $editNodePath === $path && $editField === 'name';
     $isEditingApp  = isset($editNodePath, $editField) && $editNodePath === $path && $editField === 'appName';
@@ -7,8 +7,7 @@
     $isSelected    = isset($selectedNodePath) && $selectedNodePath === $path;
 @endphp
 
-<li class="pl-4 border-l-2 border-gray-300 relative"
-    wire:key="node-{{ $nodeKey }}">
+<li class="pl-4 border-l-2 border-gray-300 relative" wire:key="node-{{ $nodeKey }}">
     <div
         wire:click.prevent="selectNode({{ json_encode($path) }})"
         class="flex items-center gap-2 cursor-pointer {{ $isSelected ? 'bg-blue-100 font-semibold' : '' }} hover:bg-blue-50 rounded px-2 py-1"
@@ -34,7 +33,7 @@
                     title="Double-click to edit name"
                     wire:dblclick.stop="startInlineEdit({{ json_encode($path) }}, 'name')"
                 >
-                    {{ $node['name'] }}
+                    {{ $node['name'] ?? '(unnamed)' }}
                 </span>
             @endif
         </div>
@@ -59,7 +58,7 @@
                     title="Double-click to edit app name"
                     wire:dblclick.stop="startInlineEdit({{ json_encode($path) }}, 'appName')"
                 >
-                    {{ $node['appName'] ?? $node['name'] }}
+                    {{ $node['appName'] ?? ($node['name'] ?? '') }}
                 </span>
             @endif
         </div>
@@ -79,7 +78,7 @@
         @endif
     </div>
 
-    @if (!empty($node['children']))
+    @if (!empty($node['children']) && is_array($node['children']))
         <ul class="pl-6 mt-1 space-y-1">
             @foreach ($node['children'] as $childIndex => $childNode)
                 @include('livewire.partials.tree-node', [
