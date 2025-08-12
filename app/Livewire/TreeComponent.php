@@ -1,6 +1,8 @@
 <?php
+
 namespace App\Livewire;
 
+use App\Models\OrganizationStructure as TreeModel;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Storage;
 use Livewire\Component;
@@ -8,6 +10,8 @@ use Livewire\Component;
 class TreeComponent extends Component
 {
     public $tree = [];
+    public ?int $treeId = null;
+    public string $title = '';
 
     public $newNodeName = '';
     public $newAppName  = '';
@@ -19,7 +23,7 @@ class TreeComponent extends Component
     // inline edit state
     public $editNodePath = null;     // e.g. [0,2,1]
     public $editField = null;        // 'name' | 'appName'
-    public $editValue = '';          // temp value while editing
+    public $editValue = '';
 
     // Predefined subtree
     protected $predefinedStructure = [
@@ -34,11 +38,70 @@ class TreeComponent extends Component
         ],
     ];
 
-    public function mount()
+    public function mount(?int $treeId = null)
     {
-        $this->tree = [];
+        if ($treeId) {
+            $this->loadTree($treeId);
+        } else {
+            $this->tree = [];
+        }
     }
 
+    // ===== NEW / LOAD / SAVE =====
+    public function createNewTree()
+    {
+        $this->validate(['title' => 'required|string|min:2']);
+
+        $model = TreeModel::create([
+            'title' => $this->title,
+            'data'  => $this->exportableTree($this->tree), // initially empty
+        ]);
+
+        $this->treeId = $model->id;
+
+        // Close modal via Flux helper bound to this component
+        $this->modal('new-tree')->close();
+
+        $this->dispatch('toast', type: 'success', message: 'Baum angelegt.');
+    }
+
+    public function loadTree(int $id): void
+    {
+        $model = TreeModel::findOrFail($id);
+        $this->treeId = $model->id;
+        $this->title  = $model->title;
+        $this->tree   = $model->data ?? [];
+        $this->hydrateDeletableFlags($this->tree);
+    }
+
+    protected function hydrateDeletableFlags(array &$nodes): void
+    {
+        foreach ($nodes as &$n) {
+            if (!array_key_exists('deletable', $n)) $n['deletable'] = true;
+            if (!empty($n['children'])) $this->hydrateDeletableFlags($n['children']);
+        }
+    }
+
+    protected function persist(): void
+    {
+        if (!$this->treeId) return;
+        $model = TreeModel::find($this->treeId);
+        if (!$model) return;
+
+        $model->update([
+            'title' => $this->title ?: $model->title,
+            'data'  => $this->exportableTree($this->tree),
+        ]);
+
+        $this->dispatch('autosaved');
+    }
+
+    public function updatedTitle(): void
+    {
+        $this->persist();
+    }
+
+    // ===== NODE OPS (all persist) =====
     public function addNode()
     {
         if (trim($this->newNodeName) === '') return;
@@ -49,33 +112,83 @@ class TreeComponent extends Component
             'children'  => [],
             'deletable' => true,
         ];
-
         if ($this->addWithStructure) {
             $newNode['children'] = $this->buildPredefinedChildrenNonDeletable($this->predefinedStructure);
         }
 
-        // Ensure target path is still valid after deletions
-        $targetPath = $this->selectedNodePath;
-        if (!$this->pathExists($this->tree, $targetPath)) {
-            $targetPath = null;
-        }
+        $targetPath = $this->pathExists($this->tree, $this->selectedNodePath) ? $this->selectedNodePath : null;
+        if ($targetPath === null) $this->tree[] = $newNode;
+        else $this->addChildAtPathSafely($this->tree, $targetPath, $newNode);
 
-        if ($targetPath === null) {
-            $this->tree[] = $newNode;
-        } else {
-            if (!$this->addChildAtPathSafely($this->tree, $targetPath, $newNode)) {
-                // Fallback: push to root and purge broken selection
-                $this->tree[] = $newNode;
-                $this->selectedNodePath = null;
-            }
-        }
-
-        // reset create inputs
         $this->newNodeName = '';
         $this->newAppName  = '';
         $this->addWithStructure = false;
+
+        $this->persist();
     }
 
+    public function removeNode($path)
+    {
+        $node = $this->getNodeByPathRef($this->tree, $path);
+        if (!$node) return;
+        if (!($node['deletable'] ?? false)) return;
+
+        $this->removeNodeAtPath($this->tree, $path);
+
+        $this->selectedNodePath = null;
+        $this->editNodePath = null; $this->editField = null; $this->editValue = '';
+
+        $this->persist();
+    }
+
+    public function selectNode($path)
+    {
+        $this->selectedNodePath = $this->pathExists($this->tree, $path) ? $path : null;
+    }
+
+    // Inline edit
+    public function startInlineEdit($path, $field)
+    {
+        if (!in_array($field, ['name', 'appName'])) return;
+        $node = $this->getNodeByPathRef($this->tree, $path);
+        if (!$node) return;
+
+        $this->editNodePath = $path;
+        $this->editField    = $field;
+        $this->editValue    = $node[$field] ?? '';
+    }
+
+    public function saveInlineEdit()
+    {
+        if ($this->editNodePath === null || $this->editField === null) return;
+
+        $val = trim((string) $this->editValue);
+        $fields = [$this->editField => $val];
+
+        $node = $this->getNodeByPathRef($this->tree, $this->editNodePath);
+        if ($this->editField === 'name' && $node) {
+            if (($node['appName'] ?? '') === ($node['name'] ?? '')) {
+                $fields['appName'] = ($val !== '') ? $val : '';
+            }
+        }
+
+        $this->setNodeFieldsByPath($this->tree, $this->editNodePath, $fields);
+
+        $this->editNodePath = null;
+        $this->editField = null;
+        $this->editValue = '';
+
+        $this->persist();
+    }
+
+    public function cancelInlineEdit()
+    {
+        $this->editNodePath = null;
+        $this->editField = null;
+        $this->editValue = '';
+    }
+
+    // ===== Helpers =====
     protected function buildPredefinedChildrenNonDeletable(array $items): array
     {
         $res = [];
@@ -92,7 +205,6 @@ class TreeComponent extends Component
         return $res;
     }
 
-    // Safe: returns bool
     protected function addChildAtPathSafely(&$nodes, $path, $newNode): bool
     {
         if ($path === null || !is_array($path) || empty($path)) return false;
@@ -124,82 +236,6 @@ class TreeComponent extends Component
         return true;
     }
 
-    public function removeNode($path)
-    {
-        $node = $this->getNodeByPathRef($this->tree, $path);
-        if (!$node) return;
-        if (!($node['deletable'] ?? false)) return;
-
-        $this->removeNodeAtPath($this->tree, $path);
-
-        // Clear selection & edit state after structural change
-        $this->selectedNodePath = null;
-        $this->editNodePath = null;
-        $this->editField = null;
-        $this->editValue = '';
-    }
-
-    protected function removeNodeAtPath(&$nodes, $path)
-    {
-        $index = array_shift($path);
-        if (!isset($nodes[$index])) return;
-
-        if (count($path) === 0) {
-            array_splice($nodes, $index, 1);
-        } else {
-            $this->removeNodeAtPath($nodes[$index]['children'], $path);
-        }
-    }
-
-    public function selectNode($path)
-    {
-        // Only save if valid
-        $this->selectedNodePath = $this->pathExists($this->tree, $path) ? $path : null;
-    }
-
-    // -------- Inline edit ----------
-    public function startInlineEdit($path, $field)
-    {
-        if (!in_array($field, ['name', 'appName'])) return;
-
-        $node = $this->getNodeByPathRef($this->tree, $path);
-        if (!$node) return;
-
-        $this->editNodePath = $path;
-        $this->editField    = $field;
-        $this->editValue    = $node[$field] ?? '';
-    }
-
-    public function saveInlineEdit()
-    {
-        if ($this->editNodePath === null || $this->editField === null) return;
-
-        $val = trim((string) $this->editValue);
-        $fields = [];
-        $fields[$this->editField] = $val;
-
-        $node = $this->getNodeByPathRef($this->tree, $this->editNodePath);
-        if ($this->editField === 'name' && $node) {
-            if (($node['appName'] ?? '') === ($node['name'] ?? '')) {
-                $fields['appName'] = ($val !== '') ? $val : '';
-            }
-        }
-
-        $this->setNodeFieldsByPath($this->tree, $this->editNodePath, $fields);
-
-        $this->editNodePath = null;
-        $this->editField = null;
-        $this->editValue = '';
-    }
-
-    public function cancelInlineEdit()
-    {
-        $this->editNodePath = null;
-        $this->editField = null;
-        $this->editValue = '';
-    }
-
-    // ---------- helpers ----------
     protected function &getNodeByPathRef(&$nodes, $path)
     {
         $null = null;
@@ -232,7 +268,6 @@ class TreeComponent extends Component
             foreach ($fields as $k => $v) {
                 $nodes[$index][$k] = $v;
             }
-            // Normalize: if appName is empty, mirror name
             if (($nodes[$index]['appName'] ?? '') === '') {
                 $nodes[$index]['appName'] = $nodes[$index]['name'] ?? '';
             }
@@ -241,12 +276,24 @@ class TreeComponent extends Component
         }
     }
 
+    protected function removeNodeAtPath(&$nodes, $path)
+    {
+        $index = array_shift($path);
+        if (!isset($nodes[$index])) return;
+
+        if (count($path) === 0) {
+            array_splice($nodes, $index, 1);
+        } else {
+            $this->removeNodeAtPath($nodes[$index]['children'], $path);
+        }
+    }
+
     protected function modalNameFromPath($path)
     {
         return $path === null ? '' : 'edit-' . implode('-', $path);
     }
 
-    // -------- Export / JSON --------
+    // ===== Export / Excel =====
     public function generateJson()
     {
         $clean = $this->exportableTree($this->tree);
@@ -261,7 +308,7 @@ class TreeComponent extends Component
             ->post('http://localhost:8000/generate-excel', $payload);
 
         if (!$response->successful()) {
-            $this->addError('generate', 'Failed to generate Excel file.');
+            $this->addError('generate', 'Excel-Erzeugung fehlgeschlagen.');
             return;
         }
 
@@ -271,14 +318,10 @@ class TreeComponent extends Component
         $this->dispatch('excel-ready', filename: $filename);
     }
 
-    /**
-     * Recursively strip internal fields for export, wrapped once.
-     */
     protected function exportableTree(array $nodes, bool $wrap = true): array
     {
         $out = [];
         foreach ($nodes as $n) {
-            // Only export well-formed nodes
             if (!is_array($n)) continue;
             $out[] = [
                 'name'     => $n['name'] ?? '',

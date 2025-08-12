@@ -1,5 +1,5 @@
 <div>
-    <h1>Tree</h1>
+    <h1>Struktur</h1>
     <livewire:tree-component></livewire:tree-component>
 </div>
 

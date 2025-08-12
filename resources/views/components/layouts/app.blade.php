@@ -17,8 +17,7 @@
         <flux:brand href="#" logo="#" name="Digitale Akte" class="max-lg:hidden! hidden dark:flex" />
 
     <flux:navbar class="-mb-px max-lg:hidden">
-        <flux:navbar.item icon="home" href="#">Home</flux:navbar.item>
-        <flux:navbar.item icon="inbox" href="/importer">Importer</flux:navbar.item>
+        <flux:navbar.item icon="home" href="/importer" wire:navigate>Home</flux:navbar.item>
 
         <flux:separator vertical variant="subtle" class="my-2"/>
 

@@ -14,7 +14,7 @@
     >
         <flux:icon.folder class="w-5 h-5 text-gray-500" />
 
-        {{-- NAME (double-click to edit) --}}
+        {{-- NAME (Doppelklick zum Bearbeiten) --}}
         <div class="flex items-center gap-1">
             @if ($isEditingName)
                 <input
@@ -30,15 +30,15 @@
             @else
                 <span
                     class="cursor-text"
-                    title="Double-click to edit name"
+                    title="Doppelklick zum Bearbeiten"
                     wire:dblclick.stop="startInlineEdit({{ json_encode($path) }}, 'name')"
                 >
-                    {{ $node['name'] ?? '(unnamed)' }}
+                    {{ $node['name'] ?? '(ohne Name)' }}
                 </span>
             @endif
         </div>
 
-        {{-- APP NAME (double-click to edit) --}}
+        {{-- APP-NAME (Doppelklick zum Bearbeiten) --}}
         <div class="flex items-center gap-1">
             <span class="text-xs text-gray-500">Nscale:</span>
             @if ($isEditingApp)
@@ -55,7 +55,7 @@
             @else
                 <span
                     class="text-xs text-gray-700 italic cursor-text"
-                    title="Double-click to edit app name"
+                    title="Doppelklick zum Bearbeiten"
                     wire:dblclick.stop="startInlineEdit({{ json_encode($path) }}, 'appName')"
                 >
                     {{ $node['appName'] ?? ($node['name'] ?? '') }}
@@ -63,15 +63,15 @@
             @endif
         </div>
 
-        {{-- DELETE (only if deletable) --}}
+        {{-- LÖSCHEN (nur wenn löschbar) --}}
         @if ($canDelete)
             <flux:button
                 wire:click.stop="removeNode({{ json_encode($path) }})"
                 color="danger"
                 size="sm"
                 class="ml-auto"
-                title="Remove node"
-                aria-label="Remove node"
+                title="Knoten entfernen"
+                aria-label="Knoten entfernen"
             >
                 <flux:icon.trash class="w-4 h-4" />
             </flux:button>

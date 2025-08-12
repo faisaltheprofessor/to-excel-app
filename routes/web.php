@@ -1,6 +1,8 @@
 <?php
 
+use App\Livewire\CreateImporter;
 use App\Livewire\Importer;
+use App\Livewire\TreeEditor;
 use Illuminate\Support\Facades\Route;
 use Livewire\Volt\Volt;
 
@@ -8,7 +10,20 @@ Route::get('/', function () {
     return redirect("/importer");
 })->name('home');
 
-Route::get("/importer", Importer::class)->name('importer');
+
+Route::get('/importer/new', function () {
+    $draft = \App\Models\OrganizationStructure::create([
+        'title' => 'Unbenannter Struktur',
+        'data'  => [],
+    ]);
+    return redirect()->route('importer.edit', $draft->id);
+})->name('importer.new');
+
+Route::get('/trees/{tree}', TreeEditor::class)->name('importer.edit');
+
+
+Route::get("/importer", \App\Livewire\TreeIndex::class)->name('importer.index');
+Route::get("/importer/create", Importer::class)->name('importer.create');
 Route::get('/download-excel/{filename}', function ($filename) {
     $path = 'temp/' . $filename;
     if (!Storage::exists($path)) {
