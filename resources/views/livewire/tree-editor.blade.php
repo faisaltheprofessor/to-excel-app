@@ -10,7 +10,7 @@
     </div>
 
     {{-- Knoten hinzufügen --}}
-    <div class="flex flex-col gap-2">
+    <form class="flex flex-col gap-2" wire:submit.prevent="addNode">
         <div class="flex items-center gap-4">
             {{-- CHANGED: .defer -> .live so updated* hooks fire on each keystroke --}}
             <flux:input wire:model.live="newNodeName" placeholder="Neuer Knotenname" class="flex-1"/>
@@ -21,7 +21,7 @@
                 mit Ablagen
             </label>
 
-            <flux:button wire:click="addNode" variant="primary" color="green" class="cursor-pointer">
+            <flux:button type="submit" variant="primary" color="green" class="cursor-pointer">
                 Hinzufügen
             </flux:button>
         </div>
@@ -31,7 +31,7 @@
             <div class="flex-1 text-red-600">@error('newNodeName') {{ $message }} @enderror</div>
             <div class="flex-1 text-red-600">@error('newAppName')  {{ $message }} @enderror</div>
         </div>
-    </div>
+    </form>
 
     {{-- Baum (scrollbar) --}}
     <flux:card class="overflow-auto h-auto max-h-200">
