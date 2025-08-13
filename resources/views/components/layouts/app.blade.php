@@ -30,7 +30,7 @@
     </flux:navbar>
 
     <flux:dropdown>
-        <flux:navbar.item icon:trailing="chevron-down">Habibi</flux:navbar.item>
+        <flux:navbar.item icon:trailing="chevron-down">Fachadmin</flux:navbar.item>
         <flux:navmenu>
             <flux:navmenu.item href="#">Logout</flux:navmenu.item>
         </flux:navmenu>
@@ -58,7 +58,7 @@
 </flux:sidebar>
 
 <flux:main container>
-    <flux:heading size="xl" level="1">Good afternoon, Habibi</flux:heading>
+    <flux:heading size="xl" level="1">Hallo, Fachadministrator</flux:heading>
 
     <flux:text class="mt-2 mb-6 text-base">Importer-Datei erstellen</flux:text>
 

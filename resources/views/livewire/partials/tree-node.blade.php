@@ -5,12 +5,29 @@
     $isEditingApp  = isset($editNodePath, $editField) && $editNodePath === $path && $editField === 'appName';
     $canDelete     = $node['deletable'] ?? false;
     $isSelected    = isset($selectedNodePath) && $selectedNodePath === $path;
+
+    // depth-based border color
+    $level = count($path);
+    $borderPalette = [
+        'border-red-300',
+        'border-orange-300',
+        'border-amber-300',
+        'border-lime-300',
+        'border-emerald-300',
+        'border-cyan-300',
+        'border-blue-300',
+        'border-indigo-300',
+        'border-violet-300',
+        'border-pink-300',
+        'border-slate-300',
+    ];
+    $borderClass = $borderPalette[$level % count($borderPalette)];
 @endphp
 
-<li class="pl-4 border-l-2 border-gray-300 relative" wire:key="node-{{ $nodeKey }}">
+<li class="pl-4 border-l-2 {{ $borderClass }} relative" wire:key="node-{{ $nodeKey }}">
     <div
         wire:click.prevent="selectNode({{ json_encode($path) }})"
-        class="flex items-center gap-2 cursor-pointer {{ $isSelected ? 'bg-blue-100 font-semibold' : '' }} hover:bg-blue-50 rounded px-2 py-1"
+        class="flex items-center gap-2 cursor-pointer {{ $isSelected ? 'bg-blue-300 dark:bg-gray-800 font-semibold' : '' }} hover:bg-gray-200 dark:hover:bg-gray-400 rounded px-2 py-1"
     >
         <flux:icon.folder class="w-5 h-5 text-gray-500" />
 
@@ -40,7 +57,7 @@
 
         {{-- APP-NAME (Doppelklick zum Bearbeiten) --}}
         <div class="flex items-center gap-1">
-            <span class="text-xs text-gray-500">Nscale:</span>
+            <span class="text-xs text-gray-500 dark:text-gray-100">Nscale:</span>
             @if ($isEditingApp)
                 <input
                     type="text"
@@ -54,7 +71,7 @@
                 />
             @else
                 <span
-                    class="text-xs text-gray-700 italic cursor-text"
+                    class="text-xs text-gray-700 dark:text-gray-300 italic cursor-text"
                     title="Doppelklick zum Bearbeiten"
                     wire:dblclick.stop="startInlineEdit({{ json_encode($path) }}, 'appName')"
                 >

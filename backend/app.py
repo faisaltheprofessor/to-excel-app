@@ -10,10 +10,18 @@ app = FastAPI()
 # ===== Config =====
 PREFIX = "203_"
 GROUPS_FROM_LEVEL = 3
-SHEET_NAME = "GE_Gruppenstruktur"
+SHEET_NAME  = "GE_Gruppenstruktur"
+SHEET2_NAME = "Strukt. ABlage Behörde"
 
 ROW_BAND, ROW_TITLE, ROW_CAPTION, ROW_HEADERS = 2, 3, 3, 5
 DATA_START_ROW = 4
+
+# Skip the first N wrapper parents on sheet 2
+SKIP_PARENTS = 3
+
+# Placeholders you can change later
+ORG_NAME = "BA-PANKOW"
+ADMIN_ACCOUNT   = "T1_PL_extMA_DigitaleAkte_Fach_Admin_Role"
 
 # ===== Styles =====
 ORANGE = PatternFill("solid", fgColor="EA5B2B")
@@ -21,24 +29,38 @@ CYAN   = PatternFill("solid", fgColor="63D3FF")
 PALEGR = PatternFill("solid", fgColor="D8F4D2")
 BLUE   = PatternFill("solid", fgColor="2F78BD")
 LIME   = PatternFill("solid", fgColor="CCFF66")
+GREEN  = PatternFill("solid", fgColor="A9D08E")   # G..K header band on sheet2
+YELLOW = PatternFill("solid", fgColor="FFF2CC")   # Column A bg on sheet2
+
 WHITEB = Font(color="FFFFFF", bold=True)
 BLACK  = Font(color="000000")
 BLACKB = Font(color="000000", bold=True)
 GRAY   = Font(color="808080")
-LEFT   = Alignment(horizontal="left",  vertical="center")
-CENTER = Alignment(horizontal="center",vertical="center")
-BOX = Border(
+
+# No wrapping; let autosize widen columns instead
+LEFT   = Alignment(horizontal="left",  vertical="center", wrap_text=False)
+CENTER = Alignment(horizontal="center",vertical="center", wrap_text=False)
+
+BOX = Border(  # sheet1 light grid
     left=Side(style="thin", color="D0D0D0"),
     right=Side(style="thin", color="D0D0D0"),
     top=Side(style="thin", color="D0D0D0"),
     bottom=Side(style="thin", color="D0D0D0"),
 )
+BOX2 = Border(  # sheet2 black grid (thin)
+    left=Side(style="thin", color="000000"),
+    right=Side(style="thin", color="000000"),
+    top=Side(style="thin", color="000000"),
+    bottom=Side(style="thin", color="000000"),
+)
+THICK_BOTTOM = Side(style="thick", color="000000")
+THICK_TOP    = Side(style="thick", color="000000")
 
 # All permission headers/suffixes (RIGHT block uses all)
 PERM_HEADERS = [
-    "Lesen", "Schreiben", "Administrieren", "Löschadministration",
-    "Ablageadministration", "Aktenplanadministration", "Vorlagenadministration",
-    "Aussonderung", "Postverteilung- zentral", "Postverteilung- dezentral", "Designkonfiguration",
+    "Lesen", "Schreiben", "Administrieren", "Löschadministration", "Ablageadministration",
+    "Aktenplanadministration", "Vorlagenadministration", "Aussonderung",
+    "Postverteilung- zentral", "Postverteilung- dezentral", "Designkonfiguration",
 ]
 PERM_SUFFIX = ["RO", "", "FA", "LA", "AA", "APA", "VA", "AUS", "POZ", "POD", "DK"]
 
@@ -46,7 +68,7 @@ PERM_SUFFIX = ["RO", "", "FA", "LA", "AA", "APA", "VA", "AUS", "POZ", "POD", "DK
 LEFT_HEADERS = [h for h in PERM_HEADERS if h != "Schreiben"]
 LEFT_SUFFIX  = [s for h, s in zip(PERM_HEADERS, PERM_SUFFIX) if h != "Schreiben"]
 
-# Force certain labels to container styling even if leaf
+# Force container style on sheet1
 FORCE_BLUE = {"Org", "Org Name"}
 
 def norm_token(s: str) -> str:
@@ -63,6 +85,7 @@ def tree_max_depth(nodes, level=0):
         m = max(m, tree_max_depth(n.get("children") or [], level+1))
     return m
 
+# ---------- SHEET 1 ----------
 def create_sheet(last_name_col:int, perm1_cols:int, perm2_cols:int, max_depth:int):
     spacer1 = last_name_col + 1
     perm1_s = spacer1 + 1
@@ -74,7 +97,7 @@ def create_sheet(last_name_col:int, perm1_cols:int, perm2_cols:int, max_depth:in
     flat_col = spacer3 + 1
     spacer4 = flat_col + 1
     tree_base = spacer4 + 1
-    tree_end  = tree_base + max_depth  # inclusive
+    tree_end  = tree_base + max_depth
 
     wb = Workbook(); ws = wb.active; ws.title = SHEET_NAME
 
@@ -108,7 +131,6 @@ def create_sheet(last_name_col:int, perm1_cols:int, perm2_cols:int, max_depth:in
     ws.merge_cells(start_row=ROW_CAPTION, start_column=perm1_s, end_row=ROW_CAPTION, end_column=perm1_e)
     ws.cell(row=ROW_CAPTION, column=perm1_s, value="auf Knoten zusätzlich anzulegende Gruppen").font = BLACKB
 
-    # Column headers: LEFT without "Schreiben", RIGHT full set
     for j,hdr in enumerate(LEFT_HEADERS, start=perm1_s):
         hc = ws.cell(row=ROW_HEADERS, column=j, value=hdr)
         hc.font = BLACKB; hc.alignment = CENTER; hc.border = BOX
@@ -162,6 +184,9 @@ def style_name_cell(cell, node_name:str, has_children:bool):
 def is_ablg(s: str) -> bool:
     return (s or "").strip().lower() == "ablgoe"
 
+def is_poeing(s: str) -> bool:
+    return (s or "").strip().lower() == "poeing"
+
 def write_rows(ws, nodes, row, level, last_stack, cols, lineage_names, lineage_apps):
     name_col = level + 1
     for i, node in enumerate(nodes):
@@ -172,32 +197,26 @@ def write_rows(ws, nodes, row, level, last_stack, cols, lineage_names, lineage_a
             continue
         is_last = (i == len(nodes) - 1)
 
-        # --- spacer BEFORE ablgOE ---
         if is_ablg(appn) or is_ablg(name):
             row += 1
 
-        # LEFT tree (by 'name')
         draw_connectors(ws, row, level, last_stack+[is_last], base_col=1)
         nc = ws.cell(row=row, column=name_col, value=name if name else "(unnamed)")
         style_name_cell(nc, name, bool(children))
 
-        # Dashes until spacer1
         for dc in range(name_col+1, cols["spacer1"]):
             d = ws.cell(row=row, column=dc, value="-")
             d.alignment = CENTER; d.border = BOX
 
-        # Clear spacers
         for sc in [cols["spacer1"], cols["spacer2"], cols["spacer3"], cols["spacer4"]]:
             ws.cell(row=row, column=sc, value="")
 
-        # Left perms (NO "Schreiben")
         if level >= GROUPS_FROM_LEVEL and name:
             for j, suf in enumerate(LEFT_SUFFIX, start=cols["perm1_s"]):
                 val = f"{name}-{suf}" if suf else name
                 g = ws.cell(row=row, column=j, value=val)
                 g.alignment = LEFT; g.border = BOX
 
-        # Right perms (full set)
         if level >= GROUPS_FROM_LEVEL and name:
             tokens = lineage_names + [norm_token(name)]
             start = min(GROUPS_FROM_LEVEL, len(tokens)-1)
@@ -207,12 +226,10 @@ def write_rows(ws, nodes, row, level, last_stack, cols, lineage_names, lineage_a
                 g = ws.cell(row=row, column=j, value=val)
                 g.alignment = LEFT; g.border = BOX
 
-        # "Liste" flat label
         flat_label = appn if appn else (name if name else "(unnamed)")
         fc = ws.cell(row=row, column=cols["flat_col"], value=flat_label)
         style_cell_like_node(fc, flat_label, bool(children))
 
-        # RIGHT tree (by 'appName')
         draw_connectors(ws, row, level, last_stack+[is_last], base_col=cols["tree_base"])
         r_name_col = cols["tree_base"] + level
         tv_label = appn if appn else (name if name else "(unnamed)")
@@ -228,28 +245,222 @@ def write_rows(ws, nodes, row, level, last_stack, cols, lineage_names, lineage_a
                 lineage_apps  + [appn]
             )
 
-        # --- spacer AFTER ablgOE ---
         if is_ablg(appn) or is_ablg(name):
             row += 1
 
     return row
 
-def autosize_columns(ws):
-    for col_cells in ws.columns:
-        first = next((c for c in col_cells if c is not None), None)
-        if not first:
-            continue
-        letter = get_column_letter(first.column)
+def autosize_columns(ws, min_w=10, max_w=120):
+    # No wrap; size width to longest content length
+    for col in ws.columns:
+        col = list(col)
+        letter = get_column_letter(col[0].column)
         max_len = 0
-        for cell in col_cells:
-            val = cell.value
-            if val is None:
-                continue
-            ln = len(str(val)) if not isinstance(val, (bytes, bytearray)) else 0
-            if ln > max_len:
-                max_len = ln
-        ws.column_dimensions[letter].width = max(2, min(60, max_len + 1))
+        for cell in col:
+            val = "" if cell.value is None else str(cell.value)
+            if len(val) > max_len:
+                max_len = len(val)
+        ws.column_dimensions[letter].width = max(min_w, min(max_w, max_len + 2))
 
+# ---------- SHEET 2 helpers ----------
+def strip_prefix_levels(nodes, n):
+    cur = nodes
+    for _ in range(n):
+        if not cur:
+            return []
+        first = cur[0]
+        cur = first.get("children") or []
+    return cur
+
+def allowed_types_for(label, typ):
+    lab = (label or "").lower()
+    if typ == "Posteingang" or lab.startswith("pe_") or "poeing" in lab:
+        return ""  # Pe/PoKorb: empty
+    return "GOV_FILE" if typ == "Aktenablage" else ""
+
+def break_inheritance_from_node(node, desc_text):
+    v = node.get("unterbrechen")
+    if isinstance(v, str) and v.strip().lower() in {"wahr", "true", "ja"}:
+        return "WAHR"
+    if v is True:
+        return "WAHR"
+    if "ohne leitungszugriff" in (desc_text or "").lower():
+        return "WAHR"
+    return ""
+
+def build_group_key(path_apps):
+    return f"{'_'.join(path_apps)}".strip()
+
+def pokorb_suffix_from_path(path_apps):
+    # PoKorb suffix = direct parent; if 'AblgOE', use its parent instead.
+    if not path_apps:
+        return ""
+    suffix = path_apps[-1]
+    if suffix == "AblgOE" and len(path_apps) >= 2:
+        suffix = path_apps[-2]
+    return suffix
+
+def set_row_top_thick(ws, row, col_start=1, col_end=11):
+    for c in range(col_start, col_end + 1):
+        cell = ws.cell(row=row, column=c)
+        b = cell.border
+        cell.border = Border(
+            left=b.left or Side(style="thin", color="000000"),
+            right=b.right or Side(style="thin", color="000000"),
+            top=THICK_TOP,
+            bottom=b.bottom or Side(style="thin", color="000000"),
+        )
+
+def set_row_bottom_thick(ws, row, col_start=1, col_end=11):
+    for c in range(col_start, col_end + 1):
+        cell = ws.cell(row=row, column=c)
+        b = cell.border
+        cell.border = Border(
+            left=b.left or Side(style="thin", color="000000"),
+            right=b.right or Side(style="thin", color="000000"),
+            top=b.top or Side(style="thin", color="000000"),
+            bottom=THICK_BOTTOM,
+        )
+
+def set_group_bottom_thick(ws, row_last, col_start=1, col_end=11):
+    set_row_bottom_thick(ws, row_last, col_start, col_end)
+
+def write_group_recursive(ws, node, r, path_apps, poeings):
+    """
+    Sheet 2 writer:
+      - Thick TOP border on any row whose node has children.
+      - Thick BOTTOM border after that node’s last child.
+      - Bold only Column A for parents.
+      - appName is used as-is.
+    """
+    name = (node.get("name") or "").strip()
+    appn = (node.get("appName") or name).strip()
+    kids = node.get("children") or []
+    desc = (node.get("description") or "").strip()
+
+    label = appn if appn else (name if name else "(unnamed)")
+    is_parent = bool(kids)
+    parent_raw = path_apps[-1] if path_apps else ""
+
+    display_a = label
+    parent_display = parent_raw
+    typ = "Hierarchieelement" if is_parent else "Aktenablage"
+
+    full_path = path_apps + [label]
+    perm_key = build_group_key(full_path)
+
+    # write row values with thin borders; no wrap
+    values = [display_a, desc, parent_display, typ,
+              break_inheritance_from_node(node, desc),
+              allowed_types_for(label, "Posteingang" if is_poeing(label) else typ)]
+    for j, v in enumerate(values, start=1):
+        c = ws.cell(row=r, column=j, value=v)
+        c.alignment = LEFT
+        c.border = BOX2
+    ws.cell(row=r, column=1).fill = YELLOW
+
+    # permission cells G..K (use ADMIN_ACCOUNT)
+    gvals = [
+        f"{perm_key}-RO@{ORG_NAME};{ADMIN_ACCOUNT}",
+        f"{perm_key}@{ORG_NAME};{ADMIN_ACCOUNT}",
+        f"{perm_key}-FA@{ORG_NAME};{ADMIN_ACCOUNT}",
+        f"{perm_key}-LA@{ORG_NAME};{ADMIN_ACCOUNT}",
+        f"{perm_key}-AA@{ORG_NAME};{ADMIN_ACCOUNT}",
+    ]
+    for j, val in enumerate(gvals, start=7):
+        c = ws.cell(row=r, column=j, value=val)
+        c.alignment = LEFT
+        c.border = BOX2
+
+    # Fonts: only Column A bold for parents
+    ws.cell(row=r, column=1).font = (BLACKB if is_parent else BLACK)
+    for j in range(2, 12):
+        ws.cell(row=r, column=j).font = BLACK
+
+    # Thick TOP border on parent rows (apply after values so it persists)
+    if is_parent:
+        set_row_top_thick(ws, r, 1, 11)
+
+    current_row = r
+
+    # Remember for PoKorb if this is a Pe_ node
+    if is_poeing(name) or is_poeing(appn) or label.lower().startswith("pe_"):
+        poeings.append({"path": list(path_apps)})
+
+    # Children
+    for child in kids:
+        current_row += 1
+        current_row, _ = write_group_recursive(ws, child, current_row, full_path, poeings)
+
+    # Thick BOTTOM border after last child of parent
+    if is_parent:
+        set_group_bottom_thick(ws, current_row, 1, 11)
+
+    return current_row, poeings
+
+def add_second_sheet(wb: Workbook, tree):
+    ws = wb.create_sheet(title=SHEET2_NAME)
+
+    headers = [
+        "Bezeichnung strukturierte Ablage",
+        "Beschreibung",
+        "Eltern strukturierte Ablage",
+        "Art",
+        "Vererbung aus übergeordnetem Element unterbrechen",
+        "Erlaubte Aktentypen",
+        "Lesen", "Schreiben", "Administrieren", "Löschadministration", "Ablageadministration"
+    ]
+    for col_idx, h in enumerate(headers, start=1):
+        c = ws.cell(row=1, column=col_idx, value=h)
+        c.font = BLACKB; c.alignment = LEFT; c.border = BOX2
+
+    # Green header band G..K
+    for col_idx in range(7, 12):
+        ws.cell(row=1, column=col_idx).fill = GREEN
+
+    # Work on tree without first 3 wrappers
+    working_nodes = strip_prefix_levels(tree, SKIP_PARENTS)
+
+    r = 2
+    all_poeings = []
+
+    for top in working_nodes:
+        r, poe = write_group_recursive(ws, top, r, [], [])
+        all_poeings.extend(poe)
+        r += 1  # spacer between top-level groups
+
+    # Append PoKorb rows (no perms; allowed types EMPTY)
+    for pe in all_poeings:
+        suffix = pokorb_suffix_from_path(pe["path"])
+        label  = f"PoKorb_Pe_{suffix}" if suffix else "PoKorb_Pe"
+        parent = f"Pe_{suffix}"       if suffix else "Pe_"
+
+        values = [
+            label,
+            f"Postkorb {suffix}" if suffix else "Postkorb",
+            parent,
+            "Posteingang",
+            "",
+            "",  # Erlaubte Aktentypen = empty for PoKorb
+        ]
+        for j, v in enumerate(values, start=1):
+            c = ws.cell(row=r, column=j, value=v)
+            c.alignment = LEFT; c.border = BOX2
+        ws.cell(row=r, column=1).fill = YELLOW
+        for j in range(7, 12):
+            c = ws.cell(row=r, column=j, value="")
+            c.alignment = LEFT; c.border = BOX2
+        # PoKorb is leaf → all regular font
+        ws.cell(row=r, column=1).font = BLACK
+        for j in range(2, 12):
+            ws.cell(row=r, column=j).font = BLACK
+        r += 1
+
+    ws.freeze_panes = "A2"
+    autosize_columns(ws, min_w=10, max_w=120)
+    return ws
+
+# ---------- API ----------
 @app.post("/generate-excel")
 async def generate_excel(request: Request):
     data = await request.json()
@@ -262,15 +473,18 @@ async def generate_excel(request: Request):
 
     wb, ws, cols = create_sheet(
         last_name_col,
-        perm1_cols=len(LEFT_HEADERS),   # left without "Schreiben"
-        perm2_cols=len(PERM_HEADERS),   # right full set
+        perm1_cols=len(LEFT_HEADERS),
+        perm2_cols=len(PERM_HEADERS),
         max_depth=max_depth
     )
 
     write_rows(ws, tree, DATA_START_ROW, level=0, last_stack=[],
                cols=cols, lineage_names=[], lineage_apps=[])
 
-    autosize_columns(ws)
+    autosize_columns(ws, min_w=8, max_w=60)
+
+    # Second sheet
+    add_second_sheet(wb, tree)
 
     buf = io.BytesIO()
     wb.save(buf)

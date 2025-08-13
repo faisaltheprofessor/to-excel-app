@@ -57,8 +57,12 @@
     {{-- Feste Aktionsleiste unten (kleiner Bodenabstand) --}}
     <div class="fixed inset-x-0 bottom-4 flex justify-end px-4 pointer-events-none">
         <div class="pointer-events-auto flex gap-2">
-            <flux:button wire:click="generateJson" color="secondary" :disabled="! $treeId">
+            <flux:button wire:click="generateJson" color="secondary" :disabled="! $treeId" hidden>
                 JSON erzeugen
+            </flux:button>
+
+            <flux:button wire:click="generateJson" color="red" :disabled="! $treeId">
+                Löschen
             </flux:button>
 
             <flux:button wire:click="generateExcel" variant="primary" color="green" icon="sheet" :disabled="! $treeId">

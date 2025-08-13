@@ -45,11 +45,8 @@ class TreeEditor extends Component
         $this->treeId = $tree->id;
         $this->title  = $tree->title;
 
-        // DB stores RAW tree (no wrapper). If old rows had wrapper, unwrap.
         $data = $tree->data ?? [];
         $this->tree = $this->unwrapIfWrapped($data);
-
-        // Ensure deletion flags: ONLY fixed names are locked.
         $this->sanitizeDeletionFlags($this->tree);
     }
 
@@ -62,7 +59,7 @@ class TreeEditor extends Component
 
         $model->update([
             'title' => $this->title !== '' ? $this->title : $model->title,
-            'data'  => $this->tree, // store raw
+            'data'  => $this->tree,
         ]);
 
         $this->dispatch('autosaved');
@@ -73,16 +70,42 @@ class TreeEditor extends Component
         $this->persist();
     }
 
+    // ---- Clear errors instantly while typing (ADD + UPDATE) ----
+    public function updatedNewNodeName(): void
+    {
+        $this->resetValidation();
+    }
+
+    public function updatedNewAppName(): void
+    {
+        $this->resetValidation();
+    }
+
+    public function updatedEditValue(): void
+    {
+        $this->resetValidation();
+    }
+
     // ================== NODE OPS ==================
     public function addNode()
     {
         if (trim($this->newNodeName) === '') return;
 
+        // Validate name and appName for ADD
+        if ($reason = $this->invalidNameReason($this->newNodeName)) {
+            $this->addError('newNodeName', $reason);
+            return;
+        }
+        if ($this->newAppName !== '' && ($reason = $this->invalidNameReason($this->newAppName))) {
+            $this->addError('newAppName', $reason);
+            return;
+        }
+
         $newNode = [
             'name'      => $this->newNodeName,
             'appName'   => ($this->newAppName !== '') ? $this->newAppName : $this->newNodeName,
             'children'  => [],
-            'deletable' => true, // default true; sanitize will lock only fixed names
+            'deletable' => true,
         ];
 
         if ($this->addWithStructure) {
@@ -97,35 +120,27 @@ class TreeEditor extends Component
             $this->addChildAtPathSafely($this->tree, $targetPath, $newNode);
         }
 
-        // reset inputs
         $this->newNodeName = '';
         $this->newAppName  = '';
         $this->addWithStructure = false;
 
-        // flags + save
         $this->sanitizeDeletionFlags($this->tree);
         $this->persist();
     }
 
     public function removeNode($path)
     {
-        // Get a copy (not by reference) to check the name safely
         $node = $this->getNodeAtPath($this->tree, $path);
         if (!$node) return;
-
-        // Only block the fixed names; everything else must delete
         if ($this->isFixedName($node['name'] ?? '')) return;
 
-        // Do the removal
         $this->removeNodeAtPath($this->tree, $path);
 
-        // Reset UI state
         $this->selectedNodePath = null;
         $this->editNodePath = null;
         $this->editField = null;
         $this->editValue = '';
 
-        // flags + save
         $this->sanitizeDeletionFlags($this->tree);
         $this->persist();
     }
@@ -135,7 +150,6 @@ class TreeEditor extends Component
         $this->selectedNodePath = $this->pathExists($this->tree, $path) ? $path : null;
     }
 
-    // Inline edit
     public function startInlineEdit($path, $field)
     {
         if (!in_array($field, ['name', 'appName'])) return;
@@ -153,6 +167,13 @@ class TreeEditor extends Component
         if ($this->editNodePath === null || $this->editField === null) return;
 
         $val = trim((string) $this->editValue);
+
+        // Validate for UPDATE (both name and appName use same rule)
+        if ($reason = $this->invalidNameReason($val)) {
+            $this->addError('editValue', $reason);
+            return;
+        }
+
         $fields = [$this->editField => $val];
 
         // If renaming and appName mirrored old name, keep them in sync
@@ -165,12 +186,10 @@ class TreeEditor extends Component
 
         $this->setNodeFieldsByPath($this->tree, $this->editNodePath, $fields);
 
-        // clear edit state
         $this->editNodePath = null;
         $this->editField = null;
         $this->editValue = '';
 
-        // Names may have changed → re-evaluate fixed flags
         $this->sanitizeDeletionFlags($this->tree);
         $this->persist();
     }
@@ -182,7 +201,7 @@ class TreeEditor extends Component
         $this->editValue = '';
     }
 
-    // ================== EXPORT (wrapper only for API/Excel) ==================
+    // ================== EXPORT ==================
     public function generateJson()
     {
         $wrapped = $this->wrapForExport($this->tree);
@@ -200,7 +219,10 @@ class TreeEditor extends Component
             return;
         }
 
-        $filename = 'tree-' . time() . '.xlsx';
+        // File name: importer_{title}.xlsx (spaces -> underscores)
+        $safeTitle = preg_replace('/\s+/', '_', trim($this->title));
+        $filename = 'importer_' . $safeTitle . '.xlsx';
+
         Storage::put('temp/' . $filename, $res->body());
         $this->downloadFilename = $filename;
         $this->dispatch('excel-ready', filename: $filename);
@@ -208,7 +230,7 @@ class TreeEditor extends Component
 
     protected function wrapForExport(array $nodes): array
     {
-        $clean = $this->stripInternal($nodes); // remove 'deletable'
+        $clean = $this->stripInternal($nodes);
 
         return [[
             'name'=>'.PANKOW','appName'=>'.PANKOW',
@@ -236,7 +258,6 @@ class TreeEditor extends Component
     }
 
     // ================== HELPERS ==================
-    /** Old rows may still have the legacy wrapper; unwrap it for editing */
     protected function unwrapIfWrapped(array $data): array
     {
         if (
@@ -250,7 +271,7 @@ class TreeEditor extends Component
         ) {
             return $data[0]['children'][0]['children'][0]['children'] ?? [];
         }
-        return $data; // already raw
+        return $data;
     }
 
     protected function isFixedName(?string $name): bool
@@ -258,7 +279,6 @@ class TreeEditor extends Component
         return in_array((string)$name, $this->fixedNames, true);
     }
 
-    /** Ensure only the five fixed names are non-deletable; everything else deletable */
     protected function sanitizeDeletionFlags(array &$nodes): void
     {
         foreach ($nodes as &$n) {
@@ -269,7 +289,6 @@ class TreeEditor extends Component
         }
     }
 
-    /** Build the predefined subtree with correct flags for the fixed names */
     protected function buildPredefinedChildren(array $items): array
     {
         $res = [];
@@ -317,7 +336,6 @@ class TreeEditor extends Component
         return true;
     }
 
-    /** Pure read-only fetch (NO references) */
     protected function getNodeAtPath($nodes, $path): ?array
     {
         if ($path === null || !is_array($path)) return null;
@@ -360,8 +378,27 @@ class TreeEditor extends Component
         }
     }
 
+    public function delete()
+    {
+        if (TreeModel::find($this->treeId)->delete()) {
+            return $this->redirect('/importer', navigate: true);
+        }
+    }
+
     public function render()
     {
         return view('livewire.tree-editor');
+    }
+
+    // ================== VALIDATION HELPERS ==================
+    /**
+     * Same rules for name & appName: no '_' and at most two '-'.
+     */
+    protected function invalidNameReason(string $name): ?string
+    {
+        if (substr_count($name, '-') > 3) {
+            return 'Name darf höchstens drei Bindestriche (-) enthalten.';
+        }
+        return null;
     }
 }

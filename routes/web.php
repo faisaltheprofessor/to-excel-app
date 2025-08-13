@@ -19,7 +19,7 @@ Route::get('/importer/new', function () {
     return redirect()->route('importer.edit', $draft->id);
 })->name('importer.new');
 
-Route::get('/trees/{tree}', TreeEditor::class)->name('importer.edit');
+Route::get('/importer/{tree}', TreeEditor::class)->name('importer.edit');
 
 
 Route::get("/importer", \App\Livewire\TreeIndex::class)->name('importer.index');

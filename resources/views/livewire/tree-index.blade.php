@@ -32,7 +32,7 @@
                         </div>
                     </div>
                 </div>
-                <div class="mt-3 text-xs text-zinc-500 line-clamp-2">
+                <div class="mt-3 text-xs text-zinc-500 line-clamp-2 flex justify-between">
                     {{ is_array($t->data) ? (count($t->data).' Knoten (Top-Level)') : '—' }}
                 </div>
             </a>
