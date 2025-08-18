@@ -29,13 +29,13 @@ class TreeEditor extends Component
 
     /** Default subtree used when "mit Ablagen" is checked */
     protected $predefinedStructure = [
-        ['name' => 'Ltg',   'appName' => 'Ltg',   'children' => []],
-        ['name' => 'Allg',  'appName' => 'Allg',  'children' => []],
+        ['name' => 'Ltg',  'children' => []],
+        ['name' => 'Allg', 'children' => []],
         [
-            'name' => 'AblgOE', 'appName' => 'AblgOE',
+            'name' => 'AblgOE',
             'children' => [
-                ['name' => 'PoEing', 'appName' => 'PoEing', 'children' => []],
-                ['name' => 'SB',     'appName' => 'SB',     'children' => []],
+                ['name' => 'PoEing', 'children' => []],
+                ['name' => 'SB',     'children' => []],
             ],
         ],
     ];
@@ -48,6 +48,9 @@ class TreeEditor extends Component
         $data = $tree->data ?? [];
         $this->tree = $this->unwrapIfWrapped($data);
         $this->sanitizeDeletionFlags($this->tree);
+
+        // compute children appNames from current structure, preserving nodes that keep appName==name
+        $this->refreshAppNames($this->tree, null, null);
     }
 
     /** Persist RAW (no wrapper) */
@@ -65,51 +68,49 @@ class TreeEditor extends Component
         $this->dispatch('autosaved');
     }
 
-    public function updatedTitle(): void
-    {
-        $this->persist();
-    }
-
-    // ---- Clear errors instantly while typing (ADD + UPDATE) ----
-    public function updatedNewNodeName(): void
-    {
-        $this->resetValidation();
-    }
-
-    public function updatedNewAppName(): void
-    {
-        $this->resetValidation();
-    }
-
-    public function updatedEditValue(): void
-    {
-        $this->resetValidation();
-    }
+    public function updatedTitle(): void       { $this->persist(); }
+    public function updatedNewNodeName(): void { $this->resetValidation(); }
+    public function updatedNewAppName(): void  { $this->resetValidation(); }
+    public function updatedEditValue(): void   { $this->resetValidation(); }
 
     // ================== NODE OPS ==================
     public function addNode()
     {
-        if (trim($this->newNodeName) === '') return;
+        // transliterate umlauts in user input
+        $nameInput = $this->translitUmlauts(trim((string)$this->newNodeName));
+        if ($nameInput === '') return;
 
-        // Validate name and appName for ADD
-        if ($reason = $this->invalidNameReason($this->newNodeName)) {
+        if ($reason = $this->invalidNameReason($nameInput)) {
             $this->addError('newNodeName', $reason);
             return;
         }
-        if ($this->newAppName !== '' && ($reason = $this->invalidNameReason($this->newAppName))) {
+
+        // optional appName input also transliterated (though we ignore for auto rule)
+        $appInput = $this->translitUmlauts(trim((string)$this->newAppName));
+        if ($appInput !== '' && ($reason = $this->invalidNameReason($appInput))) {
             $this->addError('newAppName', $reason);
             return;
         }
 
+        // The new node keeps its own appName = its own (transliterated) name
         $newNode = [
-            'name'      => $this->newNodeName,
-            'appName'   => ($this->newAppName !== '') ? $this->newAppName : $this->newNodeName,
+            'name'      => $nameInput,
+            'appName'   => $nameInput,
             'children'  => [],
             'deletable' => true,
         ];
 
         if ($this->addWithStructure) {
-            $newNode['children'] = $this->buildPredefinedChildren($this->predefinedStructure);
+            // children follow the scheme; effective parent for them is:
+            // - normally the new node's name
+            // - if the new node IS AblgOE, use the grandparent (i.e., the effective parent at insertion path)
+            $parentAtPath = $this->effectiveParentNameForPath($this->selectedNodePath);
+            $effectiveForChildren = $this->nextEffectiveParent($nameInput, $parentAtPath);
+
+            $newNode['children'] = $this->buildPredefinedChildrenWithParent(
+                $this->predefinedStructure,
+                $effectiveForChildren
+            );
         }
 
         $targetPath = $this->pathExists($this->tree, $this->selectedNodePath) ? $this->selectedNodePath : null;
@@ -120,6 +121,10 @@ class TreeEditor extends Component
             $this->addChildAtPathSafely($this->tree, $targetPath, $newNode);
         }
 
+        // Recompute children appNames across the tree (parents that keep appName==name are preserved)
+        $this->refreshAppNames($this->tree, null, null);
+
+        // clear inputs (also set to transliterated value for immediate UI consistency)
         $this->newNodeName = '';
         $this->newAppName  = '';
         $this->addWithStructure = false;
@@ -135,6 +140,8 @@ class TreeEditor extends Component
         if ($this->isFixedName($node['name'] ?? '')) return;
 
         $this->removeNodeAtPath($this->tree, $path);
+
+        $this->refreshAppNames($this->tree, null, null);
 
         $this->selectedNodePath = null;
         $this->editNodePath = null;
@@ -166,25 +173,30 @@ class TreeEditor extends Component
     {
         if ($this->editNodePath === null || $this->editField === null) return;
 
-        $val = trim((string) $this->editValue);
+        // transliterate umlauts in user edit
+        $val = $this->translitUmlauts(trim((string)$this->editValue));
 
-        // Validate for UPDATE (both name and appName use same rule)
         if ($reason = $this->invalidNameReason($val)) {
             $this->addError('editValue', $reason);
             return;
         }
 
+        // capture BEFORE change to know if appName mirrored name
+        $before = $this->getNodeAtPath($this->tree, $this->editNodePath);
+        $oldName = $before['name'] ?? null;
+        $oldApp  = $before['appName'] ?? null;
+
         $fields = [$this->editField => $val];
 
-        // If renaming and appName mirrored old name, keep them in sync
-        $node = $this->getNodeAtPath($this->tree, $this->editNodePath);
-        if ($this->editField === 'name' && $node) {
-            if (($node['appName'] ?? '') === ($node['name'] ?? '')) {
-                $fields['appName'] = ($val !== '') ? $val : '';
-            }
+        // If renaming and appName==oldName, keep in sync (appName==newName, also transliterated)
+        if ($this->editField === 'name' && $oldName !== null && $oldApp === $oldName) {
+            $fields['appName'] = $val;
         }
 
         $this->setNodeFieldsByPath($this->tree, $this->editNodePath, $fields);
+
+        // Recompute descendants’ appNames based on the rule
+        $this->refreshAppNames($this->tree, null, null);
 
         $this->editNodePath = null;
         $this->editField = null;
@@ -219,7 +231,6 @@ class TreeEditor extends Component
             return;
         }
 
-        // File name: importer_{title}.xlsx (spaces -> underscores)
         $safeTitle = preg_replace('/\s+/', '_', trim($this->title));
         $filename = 'importer_' . $safeTitle . '.xlsx';
 
@@ -289,21 +300,28 @@ class TreeEditor extends Component
         }
     }
 
-    protected function buildPredefinedChildren(array $items): array
+    /** Build children using a fixed effective parent name */
+    protected function buildPredefinedChildrenWithParent(array $items, ?string $effectiveParentName): array
     {
         $res = [];
         foreach ($items as $it) {
-            $child = [
-                'name'      => $it['name'],
-                'appName'   => $it['appName'] ?? $it['name'],
-                'children'  => !empty($it['children']) ? $this->buildPredefinedChildren($it['children']) : [],
-                'deletable' => !$this->isFixedName($it['name']),
+            $childName = $it['name'];
+            $appName = $this->composeAppName($effectiveParentName, $childName);
+            $nextEffective = $this->nextEffectiveParent($childName, $effectiveParentName);
+
+            $res[] = [
+                'name'      => $childName,
+                'appName'   => $appName,
+                'children'  => !empty($it['children'])
+                    ? $this->buildPredefinedChildrenWithParent($it['children'], $nextEffective)
+                    : [],
+                'deletable' => !$this->isFixedName($childName),
             ];
-            $res[] = $child;
         }
         return $res;
     }
 
+    /** Add child at path */
     protected function addChildAtPathSafely(&$nodes, $path, $newNode): bool
     {
         if ($path === null || !is_array($path) || empty($path)) return false;
@@ -336,33 +354,60 @@ class TreeEditor extends Component
         return true;
     }
 
+    /*** MODIFIED: depth-accurate lookup ***/
     protected function getNodeAtPath($nodes, $path): ?array
     {
         if ($path === null || !is_array($path)) return null;
+
         $ptr = $nodes;
-        foreach ($path as $i) {
-            if (!isset($ptr[$i]) || !is_array($ptr[$i])) return null;
-            $node = $ptr[$i];
-            if ($i === end($path)) return $node;
+        $last = count($path) - 1;
+
+        foreach ($path as $depth => $idx) {
+            if (!isset($ptr[$idx]) || !is_array($ptr[$idx])) return null;
+
+            $node = $ptr[$idx];
+
+            if ($depth === $last) {
+                return $node; // stop by depth, not by index value
+            }
+
             $ptr = isset($node['children']) && is_array($node['children']) ? $node['children'] : [];
         }
+
         return null;
     }
 
+    protected function getNameAtPath($nodes, $path): ?string
+    {
+        $n = $this->getNodeAtPath($nodes, $path);
+        return $n['name'] ?? null;
+    }
+
+    /*** MODIFIED: depth-accurate setter ***/
     protected function setNodeFieldsByPath(&$nodes, $path, $fields)
     {
-        $index = array_shift($path);
-        if (!isset($nodes[$index])) return;
+        if ($path === null || !is_array($path)) return;
 
-        if (count($path) === 0) {
-            foreach ($fields as $k => $v) {
-                $nodes[$index][$k] = $v;
+        $ptr =& $nodes;
+        $last = count($path) - 1;
+
+        foreach ($path as $depth => $idx) {
+            if (!isset($ptr[$idx]) || !is_array($ptr[$idx])) return;
+
+            if ($depth === $last) {
+                foreach ($fields as $k => $v) {
+                    $ptr[$idx][$k] = $v;
+                }
+                if (($ptr[$idx]['appName'] ?? '') === '') {
+                    $ptr[$idx]['appName'] = $ptr[$idx]['name'] ?? '';
+                }
+                return;
             }
-            if (($nodes[$index]['appName'] ?? '') === '') {
-                $nodes[$index]['appName'] = $nodes[$index]['name'] ?? '';
+
+            if (!isset($ptr[$idx]['children']) || !is_array($ptr[$idx]['children'])) {
+                $ptr[$idx]['children'] = [];
             }
-        } else {
-            $this->setNodeFieldsByPath($nodes[$index]['children'], $path, $fields);
+            $ptr =& $ptr[$idx]['children'];
         }
     }
 
@@ -391,14 +436,110 @@ class TreeEditor extends Component
     }
 
     // ================== VALIDATION HELPERS ==================
-    /**
-     * Same rules for name & appName: no '_' and at most two '-'.
-     */
     protected function invalidNameReason(string $name): ?string
     {
         if (substr_count($name, '-') > 3) {
             return 'Name darf höchstens drei Bindestriche (-) enthalten.';
         }
         return null;
+    }
+
+    // ================== APPNAME RULES ==================
+
+    /** Abbr used for the child suffix, matching your screenshots */
+    protected function abbr(string $name): string
+    {
+        $map = [
+            'Ltg'    => 'Ltg',
+            'Allg'   => 'Allg',
+            'PoEing' => 'PE',
+            'SB'     => 'SB',
+        ];
+        if (isset($map[$name])) return $map[$name];
+
+        $letters = preg_replace('/[^A-Za-zÄÖÜäöüß]/u', '', $name);
+        if ($letters === '') return $name;
+        $first  = mb_strtoupper(mb_substr($letters, 0, 1));
+        $second = mb_strtolower(mb_substr($letters, 1, 1));
+        return $first . $second;
+    }
+
+    /** Compose appName from effective parent and child rules */
+    protected function composeAppName(?string $effectiveParent, string $childName): string
+    {
+        // Root (no effective parent): keep child's own name
+        if ($effectiveParent === null || $effectiveParent === '') {
+            return $childName;
+        }
+        // Special case: AblgOE itself
+        if ($childName === 'AblgOE') {
+            return 'Ab_' . $effectiveParent;
+        }
+        return $effectiveParent . '_' . $this->abbr($childName);
+    }
+
+    /** Next effective parent for grandchildren (skip AblgOE) */
+    protected function nextEffectiveParent(string $currentNodeName, ?string $currentEffectiveParent): ?string
+    {
+        return ($currentNodeName === 'AblgOE') ? $currentEffectiveParent : $currentNodeName;
+    }
+
+    /** Effective parent name for adding under $parentPath (skip AblgOE) */
+    protected function effectiveParentNameForPath($parentPath): ?string
+    {
+        if (!is_array($parentPath) || empty($parentPath)) return null;
+
+        $parentName = $this->getNameAtPath($this->tree, $parentPath);
+        if ($parentName === 'AblgOE') {
+            $grand = $parentPath;
+            array_pop($grand);
+            if (empty($grand)) return null;
+            return $this->getNameAtPath($this->tree, $grand);
+        }
+        return $parentName;
+    }
+
+    /** Recompute child appNames; do not overwrite a node whose appName==its own name */
+    protected function refreshAppNames(array &$nodes, ?string $parentName, ?string $grandparentName): void
+    {
+        foreach ($nodes as &$n) {
+            $name = $n['name'] ?? '';
+
+            // ensure a node at least carries its own name as appName
+            if (!isset($n['appName']) || $n['appName'] === '') {
+                $n['appName'] = $name;
+            }
+
+            // determine effective parent for THIS node's children
+            $effectiveParent = $parentName;
+            if ($parentName === 'AblgOE') {
+                $effectiveParent = $grandparentName; // skip AblgOE
+            }
+            $nextEffectiveParent = $this->nextEffectiveParent($name, $effectiveParent);
+
+            // apply scheme to children (unless a child explicitly keeps appName==name)
+            if (!empty($n['children']) && is_array($n['children'])) {
+                foreach ($n['children'] as &$child) {
+                    $childName = $child['name'] ?? '';
+                    $keep = isset($child['appName']) && $child['appName'] === $childName;
+                    if (!$keep) {
+                        $child['appName'] = $this->composeAppName($nextEffectiveParent, $childName);
+                    }
+                }
+                $this->refreshAppNames($n['children'], $name, $effectiveParent);
+            }
+        }
+    }
+
+    // ================== INPUT NORMALIZATION ==================
+    /** Replace German umlauts with ASCII equivalents in any user-entered field */
+    protected function translitUmlauts(string $s): string
+    {
+        $map = [
+            'Ä' => 'Ae', 'Ö' => 'Oe', 'Ü' => 'Ue',
+            'ä' => 'ae', 'ö' => 'oe', 'ü' => 'ue',
+            'ß' => 'ss',
+        ];
+        return strtr($s, $map);
     }
 }
