@@ -6,20 +6,10 @@
     $canDelete     = $node['deletable'] ?? false;
     $isSelected    = isset($selectedNodePath) && $selectedNodePath === $path;
 
-    // depth-based border color
     $level = count($path);
     $borderPalette = [
-        'border-red-300',
-        'border-orange-300',
-        'border-amber-300',
-        'border-lime-300',
-        'border-emerald-300',
-        'border-cyan-300',
-        'border-blue-300',
-        'border-indigo-300',
-        'border-violet-300',
-        'border-pink-300',
-        'border-slate-300',
+        'border-red-300','border-orange-300','border-amber-300','border-lime-300','border-emerald-300',
+        'border-cyan-300','border-blue-300','border-indigo-300','border-violet-300','border-pink-300','border-slate-300',
     ];
     $borderClass = $borderPalette[$level % count($borderPalette)];
 @endphp
@@ -31,21 +21,29 @@
     >
         <flux:icon.folder class="w-5 h-5 text-gray-500" />
 
-        {{-- NAME (Doppelklick zum Bearbeiten) --}}
+        {{-- NAME --}}
         <div class="flex items-center gap-1">
             @if ($isEditingName)
-                <input
-                    type="text"
-                    class="px-1 py-0.5 border rounded text-sm"
-                    wire:key="edit-name-{{ $nodeKey }}"
-                    wire:model.live="editValue"
-                    wire:keydown.enter.stop.prevent="saveInlineEdit($event.target.value)"
-                    wire:keydown.escape.stop.prevent="cancelInlineEdit"
-                    autofocus
-                />
-                @error('editValue')
-                    <span class="ml-1 text-xs text-red-600">{{ $message }}</span>
-                @enderror
+                <div class="relative">
+                    <input
+                        type="text"
+                        class="pl-1 pr-10 py-0.5 border rounded text-sm w-44"
+                        wire:key="edit-name-{{ $nodeKey }}"
+                        wire:model.live="editValue"
+                        wire:keydown.enter.stop.prevent="saveInlineEdit($event.target.value)"
+                        wire:keydown.escape.stop.prevent="cancelInlineEdit"
+                        autofocus
+                    />
+                    {{-- Controls inside input --}}
+                    <div class="absolute inset-y-0 right-1 flex items-center gap-1">
+                        <button type="button" wire:click.stop="saveInlineEdit" class="p-0.5">
+                            <flux:icon.check class="w-4 h-4 text-green-600 cursor-pointer" />
+                        </button>
+                        <button type="button" wire:click.stop="cancelInlineEdit" class="p-0.5">
+                            <flux:icon.x-mark class="w-4 h-4 text-red-600 cursor-pointer" />
+                        </button>
+                    </div>
+                </div>
             @else
                 <span
                     class="cursor-text"
@@ -57,22 +55,30 @@
             @endif
         </div>
 
-        {{-- APP-NAME (Doppelklick zum Bearbeiten) --}}
+        {{-- APP-NAME --}}
         <div class="flex items-center gap-1">
             <span class="text-xs text-gray-500 dark:text-gray-100">Nscale:</span>
             @if ($isEditingApp)
-                <input
-                    type="text"
-                    class="px-1 py-0.5 border rounded text-xs"
-                    wire:key="edit-app-{{ $nodeKey }}"
-                    wire:model.live="editValue"
-                    wire:keydown.enter.stop.prevent="saveInlineEdit($event.target.value)"
-                    wire:keydown.escape.stop.prevent="cancelInlineEdit"
-                    autofocus
-                />
-                @error('editValue')
-                    <span class="ml-1 text-xs text-red-600">{{ $message }}</span>
-                @enderror
+                <div class="relative">
+                    <input
+                        type="text"
+                        class="pl-1 pr-10 py-0.5 border rounded text-xs w-40"
+                        wire:key="edit-app-{{ $nodeKey }}"
+                        wire:model.live="editValue"
+                        wire:keydown.enter.stop.prevent="saveInlineEdit($event.target.value)"
+                        wire:keydown.escape.stop.prevent="cancelInlineEdit"
+                        autofocus
+                    />
+                    {{-- Controls inside input --}}
+                    <div class="absolute inset-y-0 right-1 flex items-center gap-1">
+                        <button type="button" wire:click.stop="saveInlineEdit" class="p-0.5">
+                            <flux:icon.check class="w-4 h-4 text-green-600 cursor-pointer" />
+                        </button>
+                        <button type="button" wire:click.stop="cancelInlineEdit" class="p-0.5">
+                            <flux:icon.x-mark class="w-4 h-4 text-red-600 cursor-pointer" />
+                        </button>
+                    </div>
+                </div>
             @else
                 <span
                     class="text-xs text-gray-700 dark:text-gray-300 italic cursor-text"
@@ -84,15 +90,13 @@
             @endif
         </div>
 
-        {{-- LÖSCHEN (nur wenn löschbar) --}}
+        {{-- DELETE --}}
         @if ($canDelete)
             <flux:button
                 wire:click.stop="removeNode({{ json_encode($path) }})"
                 color="danger"
                 size="sm"
                 class="ml-auto"
-                title="Knoten entfernen"
-                aria-label="Knoten entfernen"
             >
                 <flux:icon.trash class="w-4 h-4" />
             </flux:button>
