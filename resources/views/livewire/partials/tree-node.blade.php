@@ -38,12 +38,14 @@
                     type="text"
                     class="px-1 py-0.5 border rounded text-sm"
                     wire:key="edit-name-{{ $nodeKey }}"
-                    wire:model.defer="editValue"
-                    wire:keydown.enter="saveInlineEdit"
-                    wire:keydown.escape="cancelInlineEdit"
-                    wire:blur="saveInlineEdit"
+                    wire:model.live="editValue"
+                    wire:keydown.enter.stop.prevent="saveInlineEdit($event.target.value)"
+                    wire:keydown.escape.stop.prevent="cancelInlineEdit"
                     autofocus
                 />
+                @error('editValue')
+                    <span class="ml-1 text-xs text-red-600">{{ $message }}</span>
+                @enderror
             @else
                 <span
                     class="cursor-text"
@@ -63,12 +65,14 @@
                     type="text"
                     class="px-1 py-0.5 border rounded text-xs"
                     wire:key="edit-app-{{ $nodeKey }}"
-                    wire:model.defer="editValue"
-                    wire:keydown.enter="saveInlineEdit"
-                    wire:keydown.escape="cancelInlineEdit"
-                    wire:blur="saveInlineEdit"
+                    wire:model.live="editValue"
+                    wire:keydown.enter.stop.prevent="saveInlineEdit($event.target.value)"
+                    wire:keydown.escape.stop.prevent="cancelInlineEdit"
                     autofocus
                 />
+                @error('editValue')
+                    <span class="ml-1 text-xs text-red-600">{{ $message }}</span>
+                @enderror
             @else
                 <span
                     class="text-xs text-gray-700 dark:text-gray-300 italic cursor-text"
