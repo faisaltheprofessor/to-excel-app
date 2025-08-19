@@ -85,18 +85,18 @@ class TreeEditor extends Component
             return;
         }
 
-        // optional appName input also transliterated (though we ignore for auto rule)
+        // optional appName input also transliterated
         $appInput = $this->translitUmlauts(trim((string)$this->newAppName));
         if ($appInput !== '' && ($reason = $this->invalidNameReason($appInput))) {
             $this->addError('newAppName', $reason);
             return;
         }
 
-        // The new node keeps its own appName = its own (transliterated) name
+        // If appName is provided, use it ONLY for the new node and mark as manual
         $newNode = [
             'name'           => $nameInput,
-            'appName'        => $nameInput,
-            'appNameManual'  => false,   // NEW: track manual override
+            'appName'        => ($appInput !== '') ? $appInput : $nameInput,
+            'appNameManual'  => ($appInput !== ''), // manual if user provided it
             'children'       => [],
             'deletable'      => true,
         ];
@@ -165,7 +165,7 @@ class TreeEditor extends Component
         $this->editValue    = $node[$field] ?? '';
     }
 
-    /*** MODIFIED: accept the value explicitly to avoid snap-back / race ***/
+    /*** accept the value explicitly to avoid snap-back / race ***/
     public function saveInlineEdit($value = null)
     {
         if ($this->editNodePath === null || $this->editField === null) return;
@@ -379,7 +379,7 @@ class TreeEditor extends Component
         return $n['name'] ?? null;
     }
 
-    /*** MODIFIED: set fields using a by-reference pointer down the path ***/
+    /*** set fields using a by-reference pointer down the path ***/
     protected function setNodeFieldsByPath(&$nodes, $path, $fields)
     {
         if ($path === null || !is_array($path)) return;
@@ -420,6 +420,28 @@ class TreeEditor extends Component
         } else {
             $this->removeNodeAtPath($nodes[$index]['children'], $path);
         }
+    }
+
+    /** Resolve effective parent for naming when inserting under $path (skip AblgOE) */
+    protected function effectiveParentNameForPath($path): ?string
+    {
+        if ($path === null || !is_array($path) || empty($path)) {
+            return null;
+        }
+
+        $parentName = $this->getNameAtPath($this->tree, $path);
+        if ($parentName === null) {
+            return null;
+        }
+
+        if ($parentName === 'AblgOE') {
+            $gpPath = $path;
+            array_pop($gpPath);
+            $grandparentName = $this->getNameAtPath($this->tree, $gpPath);
+            return $grandparentName ?? null;
+        }
+
+        return $parentName;
     }
 
     public function delete()

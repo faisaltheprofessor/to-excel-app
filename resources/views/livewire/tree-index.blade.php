@@ -29,6 +29,8 @@
                         <div class="font-medium truncate" title="{{ $t->title }}">{{ $t->title }}</div>
                         <div class="text-xs text-zinc-500 mt-1">
                             Aktualisiert: {{ $t->updated_at->format('d.m.Y H:i') }}
+                            <br />
+                            {{ $t->updated_at->diffForHumans() }}
                         </div>
                     </div>
                 </div>
