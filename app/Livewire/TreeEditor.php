@@ -24,6 +24,21 @@ class TreeEditor extends Component
     public $editField = null;
     public $editValue = '';
 
+    /** Pending move (für Bestätigungsdialog) */
+    public array $pendingFromPath = [];
+    public array $pendingToPath = [];
+    public string $pendingPosition = 'into';
+    public string $pendingOldParentName = '';
+    public string $pendingNewParentName = '';
+
+    /** Für differenzierte Anzeige */
+    public bool $pendingSameParent = false;
+    public string $pendingWithinParentName = '';
+    public int $pendingFromIndex = -1;   // 0-based
+    public int $pendingToIndex   = -1;   // 0-based (berechnet nach Verschieberegel)
+    public string $pendingOldParentPathStr = '';
+    public string $pendingNewParentPathStr = '';
+
     /** Names that must never be deletable */
     protected array $fixedNames = ['Ltg','Allg','AblgOE','PoEing','SB'];
 
@@ -48,7 +63,6 @@ class TreeEditor extends Component
         $data = $tree->data ?? [];
         $this->tree = $this->unwrapIfWrapped($data);
         $this->sanitizeDeletionFlags($this->tree);
-
         $this->refreshAppNames($this->tree, null, null);
     }
 
@@ -376,6 +390,26 @@ class TreeEditor extends Component
         return $n['name'] ?? null;
     }
 
+    /** Liste der Namen entlang eines Pfades (Wurzel→…→Knoten). */
+    protected function getPathNames(array $path): array
+    {
+        $names = [];
+        $ptr = $this->tree;
+        foreach ($path as $idx) {
+            if (!isset($ptr[$idx])) break;
+            $names[] = $ptr[$idx]['name'] ?? '';
+            $ptr = isset($ptr[$idx]['children']) && is_array($ptr[$idx]['children']) ? $ptr[$idx]['children'] : [];
+        }
+        return $names;
+    }
+
+    /** Pfad als "A / B / C", leer = "(Wurzel)". */
+    protected function pathToString(array $path): string
+    {
+        $names = $this->getPathNames($path);
+        return empty($names) ? '(Wurzel)' : implode(' / ', $names);
+    }
+
     protected function setNodeFieldsByPath(&$nodes, $path, $fields)
     {
         if ($path === null || !is_array($path)) return;
@@ -460,7 +494,7 @@ class TreeEditor extends Component
         return null;
     }
 
-    // ================== APPNAME RULES ==================
+    // ================== APPNAME REGELN ==================
     protected function abbr(string $name): string
     {
         $map = [
@@ -532,7 +566,6 @@ class TreeEditor extends Component
         }
     }
 
-    // ================== INPUT NORMALIZATION ==================
     protected function translitUmlauts(string $s): string
     {
         $map = [
@@ -544,26 +577,126 @@ class TreeEditor extends Component
     }
 
     // ================== DRAG & DROP ==================
-    /** Move a node (by path) under a target node (by path). Drop ONTO target = append as last child */
-    public function moveNode($fromPath, $toPath): void
+    /**
+     * Vorbereitung der Pending-Daten für das Bestätigungsmodal.
+     */
+    public function preparePendingMove($fromPath, $toPath, $position = 'into'): void
+    {
+        $this->pendingFromPath = is_array($fromPath) ? $fromPath : [];
+        $this->pendingToPath   = is_array($toPath)   ? $toPath   : [];
+        $this->pendingPosition = in_array($position, ['into','before','after'], true) ? $position : 'into';
+
+        $oldParentPath = array_slice($this->pendingFromPath, 0, -1);
+        $newParentPath = ($this->pendingPosition === 'into')
+            ? $this->pendingToPath
+            : array_slice($this->pendingToPath, 0, -1);
+
+        $this->pendingOldParentName = $this->getNameAtPath($this->tree, $oldParentPath) ?? '';
+        $this->pendingNewParentName = $this->getNameAtPath($this->tree, $newParentPath) ?? '';
+
+        $this->pendingOldParentPathStr = $this->pathToString($oldParentPath);
+        $this->pendingNewParentPathStr = $this->pathToString($newParentPath);
+
+        $this->pendingSameParent = ($oldParentPath === $newParentPath);
+
+        $this->pendingWithinParentName = $this->pendingSameParent
+            ? ($this->pendingOldParentName ?: '(Wurzel)')
+            : '';
+
+        $this->pendingFromIndex = -1;
+        $this->pendingToIndex   = -1;
+
+        if ($this->pendingSameParent && in_array($this->pendingPosition, ['before','after'], true)) {
+            $fromIndex = end($this->pendingFromPath);
+            $targetIndexOriginal = end($this->pendingToPath);
+
+            // Verschiebungslogik wie in moveNode(): Zielindex korrigieren, wenn Quelle links vom Ziel war
+            $shift = ($fromIndex < $targetIndexOriginal) ? 1 : 0;
+            $newIndex = ($this->pendingPosition === 'before')
+                ? ($targetIndexOriginal - $shift)
+                : ($targetIndexOriginal - $shift + 1);
+
+            $this->pendingFromIndex = (int)$fromIndex;
+            $this->pendingToIndex   = (int)$newIndex;
+        }
+    }
+
+    /**
+     * Bestätigungsklick im Modal → tatsächliche Verschiebung.
+     */
+    public function confirmPendingMove(): void
+    {
+        if (empty($this->pendingFromPath) || empty($this->pendingToPath)) {
+            return;
+        }
+
+        $this->moveNode($this->pendingFromPath, $this->pendingToPath, $this->pendingPosition);
+
+        // aufräumen
+        $this->pendingFromPath = [];
+        $this->pendingToPath = [];
+        $this->pendingPosition = 'into';
+        $this->pendingOldParentName = '';
+        $this->pendingNewParentName = '';
+        $this->pendingSameParent = false;
+        $this->pendingWithinParentName = '';
+        $this->pendingFromIndex = -1;
+        $this->pendingToIndex = -1;
+        $this->pendingOldParentPathStr = '';
+        $this->pendingNewParentPathStr = '';
+    }
+
+    /**
+     * Move a node relative to target.
+     * $position: 'into' (as last child), 'before', 'after'
+     */
+    public function moveNode($fromPath, $toPath, $position = 'into'): void
     {
         if (!$this->pathExists($this->tree, $fromPath) || !$this->pathExists($this->tree, $toPath)) return;
 
+        // disallow moving onto itself or into its own subtree
         if ($fromPath === $toPath || $this->isAncestorPath($fromPath, $toPath)) return;
 
         $moved = $this->extractNodeAtPath($this->tree, $fromPath);
         if ($moved === null) return;
 
-        $this->appendChildAtPath($this->tree, $toPath, $moved);
+        $newPath = null;
+
+        if ($position === 'before' || $position === 'after') {
+            // insert as sibling of target
+            $parentPath = array_slice($toPath, 0, -1);
+            $targetIndex = end($toPath);
+
+            // if moving from same parent and from index < target index, target shifts by -1 after extract
+            if ($this->pathsShareParent($fromPath, $toPath)) {
+                $fromIndex = end($fromPath);
+                if ($fromIndex < $targetIndex) $targetIndex -= 1;
+            }
+
+            $insertIndex = ($position === 'before') ? $targetIndex : $targetIndex + 1;
+            $this->insertSiblingAt($this->tree, $parentPath, $insertIndex, $moved);
+            $newPath = array_merge($parentPath, [$insertIndex]);
+        } else {
+            // default: into (append as child)
+            $this->appendChildAtPath($this->tree, $toPath, $moved);
+            $newChildIndex = $this->lastChildIndexAtPath($this->tree, $toPath);
+            $newPath = array_merge($toPath, [$newChildIndex]);
+        }
 
         $this->refreshAppNames($this->tree, null, null);
         $this->sanitizeDeletionFlags($this->tree);
         $this->persist();
 
-        $newChildIndex = $this->lastChildIndexAtPath($this->tree, $toPath);
-        $this->selectedNodePath = array_merge($toPath, [$newChildIndex]);
+        $this->selectedNodePath = $newPath;
     }
 
+    protected function pathsShareParent(array $a, array $b): bool
+    {
+        if (count($a) !== count($b)) return false;
+        return $this->isAncestorPath(array_slice($a, 0, -1), $b) && count($a) - 1 === count(array_slice($b, 0, -1));
+    }
+
+    /** return true if A is ancestor of B (paths) */
     protected function isAncestorPath(array $a, array $b): bool
     {
         if (count($a) >= count($b)) return false;
@@ -573,6 +706,7 @@ class TreeEditor extends Component
         return true;
     }
 
+    /** remove and return node at path */
     protected function extractNodeAtPath(&$nodes, $path)
     {
         $index = array_shift($path);
@@ -587,6 +721,7 @@ class TreeEditor extends Component
         return $this->extractNodeAtPath($nodes[$index]['children'], $path);
     }
 
+    /** append child at path (assumes path exists) */
     protected function appendChildAtPath(&$nodes, $path, $newNode): void
     {
         $index = array_shift($path);
@@ -605,6 +740,21 @@ class TreeEditor extends Component
         $this->appendChildAtPath($nodes[$index]['children'], $path, $newNode);
     }
 
+    /** insert as sibling under parent at index */
+    protected function insertSiblingAt(&$nodes, $parentPath, int $insertIndex, $newNode): void
+    {
+        // descend to parent
+        $ptr =& $nodes;
+        foreach ($parentPath as $i) {
+            if (!isset($ptr[$i])) return;
+            if (!isset($ptr[$i]['children']) || !is_array($ptr[$i]['children'])) $ptr[$i]['children'] = [];
+            $ptr =& $ptr[$i]['children'];
+        }
+        $insertIndex = max(0, min($insertIndex, count($ptr)));
+        array_splice($ptr, $insertIndex, 0, [$newNode]);
+    }
+
+    /** last index of children at path (or -1) */
     protected function lastChildIndexAtPath($nodes, $path): int
     {
         $n = $this->getNodeAtPath($nodes, $path);
@@ -613,3 +763,4 @@ class TreeEditor extends Component
         return is_array($kids) ? max(count($kids) - 1, -1) : -1;
     }
 }
+

@@ -11,7 +11,7 @@
     /**
      * Per-level color set:
      * [0] border color
-     * [1] icon color (light + dark in one string)
+     * [1] icon color (light + dark)
      * [2] selected bg (light)
      * [3] selected bg (dark)
      * [4] selected left bar bg (light + dark)
@@ -44,8 +44,12 @@
     wire:key="node-{{ $nodeKey }}"
     data-tree-node
     data-path='@json($path)'
+    data-name='{{ $node['name'] ?? '' }}'
     draggable="true"
 >
+    {{-- BEFORE drop zone (sibling reorder) --}}
+    <div data-dropzone data-pos="before" class="h-2 -mt-1"></div>
+
     {{-- clickable left line selects parent --}}
     @if ($parentPath !== null)
         <button
@@ -62,12 +66,14 @@
         <span class="pointer-events-none absolute -left-[1px] top-0 bottom-0 w-1 rounded-full {{ $leftBarClass }}"></span>
     @endif
 
+    {{-- ROW (drop INTO here) --}}
     <div
         wire:click.prevent="selectNode({{ json_encode($path) }})"
         class="flex items-center gap-2 cursor-move
                {{ $isSelected ? $bgSelected.' font-semibold' : 'hover:bg-gray-200 dark:hover:bg-gray-600' }}
                rounded px-2 py-1"
-        data-tree-row
+        data-dropzone
+        data-pos="into"
     >
         {{-- folder icon = same hue as border/level --}}
         <flux:icon.folder class="w-5 h-5 {{ $iconClass }}" />
@@ -152,6 +158,7 @@
         @endif
     </div>
 
+    {{-- Children --}}
     @if (!empty($node['children']) && is_array($node['children']))
         <ul class="pl-6 mt-1 space-y-1">
             @foreach ($node['children'] as $childIndex => $childNode)
@@ -162,4 +169,7 @@
             @endforeach
         </ul>
     @endif
+
+    {{-- AFTER drop zone (sibling reorder) --}}
+    <div data-dropzone data-pos="after" class="h-2 mb-3"></div>
 </li>
