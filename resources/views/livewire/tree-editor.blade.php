@@ -12,7 +12,6 @@
     {{-- Knoten hinzufügen --}}
     <form class="flex flex-col gap-2" wire:submit.prevent="addNode">
         <div class="flex items-center gap-4">
-            {{-- CHANGED: .defer -> .live so updated* hooks fire on each keystroke --}}
             <flux:input wire:model.live="newNodeName" placeholder="Neuer Knotenname" class="flex-1"/>
             <flux:input wire:model.live="newAppName"  placeholder="Name im Nscale (optional)" class="flex-1"/>
 
@@ -26,15 +25,14 @@
             </flux:button>
         </div>
 
-        {{-- (Optional) Inline validation messages --}}
         <div class="flex items-start gap-4 text-sm">
             <div class="flex-1 text-red-600">@error('newNodeName') {{ $message }} @enderror</div>
             <div class="flex-1 text-red-600">@error('newAppName')  {{ $message }} @enderror</div>
         </div>
     </form>
 
-    {{-- Baum (scrollbar) --}}
-    <flux:card class="overflow-auto h-auto max-h-200">
+    {{-- Baum --}}
+    <flux:card class="overflow-auto h-auto max-h-200" data-tree-root>
         <div class="overflow-auto pr-2">
             <ul class="space-y-1">
                 @foreach ($tree as $index => $node)
@@ -69,21 +67,62 @@
 
     @script
     <script>
-        window.addEventListener('autosaved', () => {
-            // Optional: visueller Ping
-        });
-        window.addEventListener('excel-ready', event => {
-            const filename = event.detail.filename;
-            if (!filename) return;
-            const url = '{{ route("download-excel", ":filename") }}'.replace(':filename', filename);
-            const t = window.open('', '_blank');
-            if (t) {
-                t.location.href = url;
-                setTimeout(() => t.close(), 500);
-            } else {
-                location.href = url;
+        (function () {
+            const OVER_CLASS = 'ring-1 ring-offset-1 dark:ring-offset-0 ring-blue-400 dark:ring-blue-500 rounded';
+
+            // Find the Livewire component instance for a given element by walking up to the nearest [wire:id]
+            function findLivewireInstance(el) {
+                const host = el.closest('[wire\\:id]');
+                if (!host || !window.Livewire) return null;
+                const id = host.getAttribute('wire:id');
+                return window.Livewire.find ? window.Livewire.find(id) : null;
             }
-        });
+
+            // DRAG START
+            document.addEventListener('dragstart', (e) => {
+                const li = e.target.closest('[data-tree-node]');
+                if (!li) return;
+                if (e.target.tagName === 'INPUT' || e.target.isContentEditable) { e.preventDefault(); return; }
+                e.dataTransfer.effectAllowed = 'move';
+                e.dataTransfer.dropEffect = 'move';
+                e.dataTransfer.setData('text/plain', li.dataset.path || '[]');
+            });
+
+            // Allow drops
+            document.addEventListener('dragover', (e) => {
+                if (e.target.closest('[data-tree-node]')) {
+                    e.preventDefault();
+                    e.dataTransfer.dropEffect = 'move';
+                }
+            });
+
+            // Hover ring
+            document.addEventListener('dragenter', (e) => {
+                const li = e.target.closest('[data-tree-node]');
+                if (li) li.classList.add(...OVER_CLASS.split(' '));
+            });
+            document.addEventListener('dragleave', (e) => {
+                const li = e.target.closest('[data-tree-node]');
+                if (li) li.classList.remove(...OVER_CLASS.split(' '));
+            });
+
+            // DROP → Livewire call
+            document.addEventListener('drop', (e) => {
+                const li = e.target.closest('[data-tree-node]');
+                if (!li) return;
+                e.preventDefault();
+                li.classList.remove(...OVER_CLASS.split(' '));
+
+                let fromPath = [];
+                try { fromPath = JSON.parse(e.dataTransfer.getData('text/plain') || '[]'); } catch {}
+                const toPath = JSON.parse(li.dataset.path || '[]');
+
+                const inst = findLivewireInstance(li);
+                if (!inst) return; // Livewire not found near this node
+
+                inst.call('moveNode', fromPath, toPath);
+            });
+        })();
     </script>
     @endscript
 

@@ -14,7 +14,7 @@
      * [1] icon color (light + dark in one string)
      * [2] selected bg (light)
      * [3] selected bg (dark)
-     * [4] selected left bar bg (light + dark in one string)
+     * [4] selected left bar bg (light + dark)
      */
     $colorPalette = [
         ['border-red-300',    'text-red-500 dark:text-red-300',       'bg-red-100',    'dark:bg-red-900',    'bg-red-400 dark:bg-red-500'],
@@ -35,21 +35,41 @@
     $iconClass    = $colors[1];
     $bgSelected   = $colors[2] . ' ' . $colors[3];
     $leftBarClass = $colors[4];
+
+    $parentPath = count($path) > 0 ? array_slice($path, 0, -1) : null;
 @endphp
 
-<li class="relative pl-4 border-l-2 {{ $borderClass }}" wire:key="node-{{ $nodeKey }}">
-    {{-- subtle left bar highlight on selection (on top of the per-level border) --}}
+<li
+    class="relative pl-4 border-l-2 {{ $borderClass }}"
+    wire:key="node-{{ $nodeKey }}"
+    data-tree-node
+    data-path='@json($path)'
+    draggable="true"
+>
+    {{-- clickable left line selects parent --}}
+    @if ($parentPath !== null)
+        <button
+            type="button"
+            class="absolute -left-1 top-0 bottom-0 w-3 opacity-0 hover:opacity-40 focus:opacity-40 transition-opacity"
+            title="Übergeordnetes Element auswählen"
+            wire:click.stop="selectNode({{ json_encode($parentPath) }})"
+            data-tree-line
+        ></button>
+    @endif
+
+    {{-- subtle left bar on selection --}}
     @if ($isSelected)
         <span class="pointer-events-none absolute -left-[1px] top-0 bottom-0 w-1 rounded-full {{ $leftBarClass }}"></span>
     @endif
 
     <div
         wire:click.prevent="selectNode({{ json_encode($path) }})"
-        class="flex items-center gap-2 cursor-pointer
+        class="flex items-center gap-2 cursor-move
                {{ $isSelected ? $bgSelected.' font-semibold' : 'hover:bg-gray-200 dark:hover:bg-gray-600' }}
                rounded px-2 py-1"
+        data-tree-row
     >
-        {{-- folder icon color matches the line/level color --}}
+        {{-- folder icon = same hue as border/level --}}
         <flux:icon.folder class="w-5 h-5 {{ $iconClass }}" />
 
         {{-- NAME --}}
