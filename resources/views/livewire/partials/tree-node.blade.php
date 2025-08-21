@@ -67,10 +67,10 @@
                     />
                     <div class="absolute inset-y-0 right-1 flex items-center gap-1">
                         <button type="button" wire:click.stop="saveInlineEdit" class="p-0.5">
-                            <flux:icon.check class="w-4 h-4 text-green-600 dark:text-green-400 cursor-pointer" />
+                            <flux:icon.check class="w-5 h-5 text-green-600 dark:text-green-400 cursor-pointer stroke-[2.5]" />
                         </button>
                         <button type="button" wire:click.stop="cancelInlineEdit" class="p-0.5">
-                            <flux:icon.x-mark class="w-4 h-4 text-red-600 dark:text-red-400 cursor-pointer" />
+                            <flux:icon.x-mark class="w-5 h-5 text-red-600 dark:text-red-400 cursor-pointer stroke-[2.5]" />
                         </button>
                     </div>
                 </div>
@@ -101,10 +101,10 @@
                     />
                     <div class="absolute inset-y-0 right-1 flex items-center gap-1">
                         <button type="button" wire:click.stop="saveInlineEdit" class="p-0.5">
-                            <flux:icon.check class="w-4 h-4 text-green-600 dark:text-green-400 cursor-pointer" />
+                            <flux:icon.check class="w-5 h-5 text-green-600 dark:text-green-400 cursor-pointer stroke-[2.5]" />
                         </button>
                         <button type="button" wire:click.stop="cancelInlineEdit" class="p-0.5">
-                            <flux:icon.x-mark class="w-4 h-4 text-red-600 dark:text-red-400 cursor-pointer" />
+                            <flux:icon.x-mark class="w-5 h-5 text-red-600 dark:text-red-400 cursor-pointer stroke-[2.5]" />
                         </button>
                     </div>
                 </div>
