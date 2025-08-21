@@ -135,11 +135,23 @@ class TreeEditor extends Component
         if (!$node) return;
         if ($this->isFixedName($node['name'] ?? '')) return;
 
+        // compute parent BEFORE delete
+        $parentPath = (is_array($path) && count($path) > 0) ? array_slice($path, 0, -1) : null;
+
         $this->removeNodeAtPath($this->tree, $path);
 
+        // recompute + clean state
         $this->refreshAppNames($this->tree, null, null);
 
-        $this->selectedNodePath = null;
+        // select parent if possible; else first root (if any); else null
+        if (is_array($parentPath) && count($parentPath) > 0 && $this->pathExists($this->tree, $parentPath)) {
+            $this->selectedNodePath = $parentPath;
+        } elseif (!empty($this->tree)) {
+            $this->selectedNodePath = [0];
+        } else {
+            $this->selectedNodePath = null;
+        }
+
         $this->editNodePath = null;
         $this->editField = null;
         $this->editValue = '';
