@@ -24,18 +24,16 @@ class TreeEditor extends Component
     public $editField = null;
     public $editValue = '';
 
-    /** Pending move (für Bestätigungsdialog) */
+    // Pending move (Bestätigungsdialog)
     public array $pendingFromPath = [];
     public array $pendingToPath = [];
     public string $pendingPosition = 'into';
     public string $pendingOldParentName = '';
     public string $pendingNewParentName = '';
-
-    /** Für differenzierte Anzeige */
     public bool $pendingSameParent = false;
     public string $pendingWithinParentName = '';
-    public int $pendingFromIndex = -1;   // 0-based
-    public int $pendingToIndex   = -1;   // 0-based (berechnet nach Verschieberegel)
+    public int $pendingFromIndex = -1;
+    public int $pendingToIndex   = -1;
     public string $pendingOldParentPathStr = '';
     public string $pendingNewParentPathStr = '';
 
@@ -114,7 +112,6 @@ class TreeEditor extends Component
         if ($this->addWithStructure) {
             $parentAtPath = $this->effectiveParentNameForPath($this->selectedNodePath);
             $effectiveForChildren = $this->nextEffectiveParent($nameInput, $parentAtPath);
-
             $newNode['children'] = $this->buildPredefinedChildrenWithParent(
                 $this->predefinedStructure,
                 $effectiveForChildren
@@ -137,6 +134,9 @@ class TreeEditor extends Component
 
         $this->sanitizeDeletionFlags($this->tree);
         $this->persist();
+
+        // Re-focus the "Neuer Knotenname" input
+        $this->dispatch('focus-newnode');
     }
 
     public function removeNode($path)
@@ -148,7 +148,6 @@ class TreeEditor extends Component
         $parentPath = (is_array($path) && count($path) > 0) ? array_slice($path, 0, -1) : null;
 
         $this->removeNodeAtPath($this->tree, $path);
-
         $this->refreshAppNames($this->tree, null, null);
 
         if (is_array($parentPath) && count($parentPath) > 0 && $this->pathExists($this->tree, $parentPath)) {
@@ -184,12 +183,12 @@ class TreeEditor extends Component
         $this->editValue    = $node[$field] ?? '';
     }
 
+    /*** accept the value explicitly to avoid snap-back / race ***/
     public function saveInlineEdit($value = null)
     {
         if ($this->editNodePath === null || $this->editField === null) return;
 
         $val = $this->translitUmlauts(trim((string)($value ?? $this->editValue)));
-
         if ($reason = $this->invalidNameReason($val)) {
             $this->addError('editValue', $reason);
             return;
@@ -212,7 +211,6 @@ class TreeEditor extends Component
         }
 
         $this->setNodeFieldsByPath($this->tree, $this->editNodePath, $fields);
-
         $this->refreshAppNames($this->tree, null, null);
 
         $this->editNodePath = null;
@@ -317,6 +315,7 @@ class TreeEditor extends Component
         }
     }
 
+    /** Build children using a fixed effective parent name */
     protected function buildPredefinedChildrenWithParent(array $items, ?string $effectiveParentName): array
     {
         $res = [];
@@ -338,6 +337,7 @@ class TreeEditor extends Component
         return $res;
     }
 
+    /** Add child at path */
     protected function addChildAtPathSafely(&$nodes, $path, $newNode): bool
     {
         if ($path === null || !is_array($path) || empty($path)) return false;
@@ -390,26 +390,7 @@ class TreeEditor extends Component
         return $n['name'] ?? null;
     }
 
-    /** Liste der Namen entlang eines Pfades (Wurzel→…→Knoten). */
-    protected function getPathNames(array $path): array
-    {
-        $names = [];
-        $ptr = $this->tree;
-        foreach ($path as $idx) {
-            if (!isset($ptr[$idx])) break;
-            $names[] = $ptr[$idx]['name'] ?? '';
-            $ptr = isset($ptr[$idx]['children']) && is_array($ptr[$idx]['children']) ? $ptr[$idx]['children'] : [];
-        }
-        return $names;
-    }
-
-    /** Pfad als "A / B / C", leer = "(Wurzel)". */
-    protected function pathToString(array $path): string
-    {
-        $names = $this->getPathNames($path);
-        return empty($names) ? '(Wurzel)' : implode(' / ', $names);
-    }
-
+    /*** set fields using a by-reference pointer down the path ***/
     protected function setNodeFieldsByPath(&$nodes, $path, $fields)
     {
         if ($path === null || !is_array($path)) return;
@@ -452,6 +433,7 @@ class TreeEditor extends Component
         }
     }
 
+    /** Resolve effective parent for naming when inserting under $path (skip AblgOE) */
     protected function effectiveParentNameForPath($path): ?string
     {
         if ($path === null || !is_array($path) || empty($path)) {
@@ -473,113 +455,7 @@ class TreeEditor extends Component
         return $parentName;
     }
 
-    public function delete()
-    {
-        if (TreeModel::find($this->treeId)->delete()) {
-            return $this->redirect('/importer', navigate: true);
-        }
-    }
-
-    public function render()
-    {
-        return view('livewire.tree-editor');
-    }
-
-    // ================== VALIDATION HELPERS ==================
-    protected function invalidNameReason(string $name): ?string
-    {
-        if (substr_count($name, '-') > 3) {
-            return 'Name darf höchstens drei Bindestriche (-) enthalten.';
-        }
-        return null;
-    }
-
-    // ================== APPNAME REGELN ==================
-    protected function abbr(string $name): string
-    {
-        $map = [
-            'Ltg'    => 'Ltg',
-            'Allg'   => 'Allg',
-            'PoEing' => 'PE',
-            'SB'     => 'SB',
-        ];
-        if (isset($map[$name])) return $map[$name];
-
-        $letters = preg_replace('/[^A-Za-zÄÖÜäöüß]/u', '', $name);
-        if ($letters === '') return $name;
-        $first  = mb_strtoupper(mb_substr($letters, 0, 1));
-        $second = mb_strtolower(mb_substr($letters, 1, 1));
-        return $first . $second;
-    }
-
-    protected function composeAppName(?string $effectiveParent, string $childName): string
-    {
-        if ($effectiveParent === null || $effectiveParent === '') {
-            return $childName;
-        }
-        if ($childName === 'AblgOE') {
-            return 'Ab_' . $effectiveParent;
-        }
-        return $effectiveParent . '_' . $this->abbr($childName);
-    }
-
-    protected function nextEffectiveParent(string $currentNodeName, ?string $currentEffectiveParent): ?string
-    {
-        return ($currentNodeName === 'AblgOE') ? $currentEffectiveParent : $currentNodeName;
-    }
-
-    protected function refreshAppNames(array &$nodes, ?string $parentName, ?string $grandparentName): void
-    {
-        foreach ($nodes as &$n) {
-            $name = $n['name'] ?? '';
-
-            if (!isset($n['appName']) || $n['appName'] === '') {
-                $n['appName'] = $name;
-            }
-            if (!isset($n['appNameManual'])) {
-                $n['appNameManual'] = false;
-            }
-
-            $effectiveParent = $parentName;
-            if ($parentName === 'AblgOE') {
-                $effectiveParent = $grandparentName;
-            }
-            $nextEffectiveParent = $this->nextEffectiveParent($name, $effectiveParent);
-
-            if (!empty($n['children']) && is_array($n['children'])) {
-                foreach ($n['children'] as &$child) {
-                    $childName = $child['name'] ?? '';
-                    $manual = isset($child['appNameManual']) && $child['appNameManual'] === true;
-
-                    if (!$manual) {
-                        $keep = isset($child['appName']) && $child['appName'] === $childName;
-                        if (!$keep) {
-                            $child['appName'] = $this->composeAppName($nextEffectiveParent, $childName);
-                        }
-                    }
-                    if (!isset($child['appNameManual'])) {
-                        $child['appNameManual'] = $manual;
-                    }
-                }
-                $this->refreshAppNames($n['children'], $name, $effectiveParent);
-            }
-        }
-    }
-
-    protected function translitUmlauts(string $s): string
-    {
-        $map = [
-            'Ä' => 'Ae', 'Ö' => 'Oe', 'Ü' => 'Ue',
-            'ä' => 'ae', 'ö' => 'oe', 'ü' => 'ue',
-            'ß' => 'ss',
-        ];
-        return strtr($s, $map);
-    }
-
-    // ================== DRAG & DROP ==================
-    /**
-     * Vorbereitung der Pending-Daten für das Bestätigungsmodal.
-     */
+    // ================== DnD / Confirm ==================
     public function preparePendingMove($fromPath, $toPath, $position = 'into'): void
     {
         $this->pendingFromPath = is_array($fromPath) ? $fromPath : [];
@@ -609,8 +485,6 @@ class TreeEditor extends Component
         if ($this->pendingSameParent && in_array($this->pendingPosition, ['before','after'], true)) {
             $fromIndex = end($this->pendingFromPath);
             $targetIndexOriginal = end($this->pendingToPath);
-
-            // Verschiebungslogik wie in moveNode(): Zielindex korrigieren, wenn Quelle links vom Ziel war
             $shift = ($fromIndex < $targetIndexOriginal) ? 1 : 0;
             $newIndex = ($this->pendingPosition === 'before')
                 ? ($targetIndexOriginal - $shift)
@@ -621,9 +495,6 @@ class TreeEditor extends Component
         }
     }
 
-    /**
-     * Bestätigungsklick im Modal → tatsächliche Verschiebung.
-     */
     public function confirmPendingMove(): void
     {
         if (empty($this->pendingFromPath) || empty($this->pendingToPath)) {
@@ -632,9 +503,8 @@ class TreeEditor extends Component
 
         $this->moveNode($this->pendingFromPath, $this->pendingToPath, $this->pendingPosition);
 
-        // aufräumen
         $this->pendingFromPath = [];
-        $this->pendingToPath = [];
+               $this->pendingToPath = [];
         $this->pendingPosition = 'into';
         $this->pendingOldParentName = '';
         $this->pendingNewParentName = '';
@@ -663,11 +533,9 @@ class TreeEditor extends Component
         $newPath = null;
 
         if ($position === 'before' || $position === 'after') {
-            // insert as sibling of target
             $parentPath = array_slice($toPath, 0, -1);
             $targetIndex = end($toPath);
 
-            // if moving from same parent and from index < target index, target shifts by -1 after extract
             if ($this->pathsShareParent($fromPath, $toPath)) {
                 $fromIndex = end($fromPath);
                 if ($fromIndex < $targetIndex) $targetIndex -= 1;
@@ -677,7 +545,6 @@ class TreeEditor extends Component
             $this->insertSiblingAt($this->tree, $parentPath, $insertIndex, $moved);
             $newPath = array_merge($parentPath, [$insertIndex]);
         } else {
-            // default: into (append as child)
             $this->appendChildAtPath($this->tree, $toPath, $moved);
             $newChildIndex = $this->lastChildIndexAtPath($this->tree, $toPath);
             $newPath = array_merge($toPath, [$newChildIndex]);
@@ -743,7 +610,6 @@ class TreeEditor extends Component
     /** insert as sibling under parent at index */
     protected function insertSiblingAt(&$nodes, $parentPath, int $insertIndex, $newNode): void
     {
-        // descend to parent
         $ptr =& $nodes;
         foreach ($parentPath as $i) {
             if (!isset($ptr[$i])) return;
@@ -762,5 +628,136 @@ class TreeEditor extends Component
         $kids = $n['children'] ?? [];
         return is_array($kids) ? max(count($kids) - 1, -1) : -1;
     }
-}
 
+    /** Pfad -> Namenliste / String */
+    protected function getPathNames(array $path): array
+    {
+        $names = [];
+        $ptr = $this->tree;
+        foreach ($path as $idx) {
+            if (!isset($ptr[$idx])) break;
+            $names[] = $ptr[$idx]['name'] ?? '';
+            $ptr = isset($ptr[$idx]['children']) && is_array($ptr[$idx]['children']) ? $ptr[$idx]['children'] : [];
+        }
+        return $names;
+    }
+
+    protected function pathToString(array $path): string
+    {
+        $names = $this->getPathNames($path);
+        return empty($names) ? '(Wurzel)' : implode(' / ', $names);
+    }
+
+    public function delete()
+    {
+        if (TreeModel::find($this->treeId)->delete()) {
+            return $this->redirect('/importer', navigate: true);
+        }
+    }
+
+    public function render()
+    {
+        return view('livewire.tree-editor');
+    }
+
+    // ================== VALIDATION HELPERS ==================
+    protected function invalidNameReason(string $name): ?string
+    {
+        if (substr_count($name, '-') > 3) {
+            return 'Name darf höchstens drei Bindestriche (-) enthalten.';
+        }
+        return null;
+    }
+
+    // ================== APPNAME RULES ==================
+    protected function abbr(string $name): string
+    {
+        $map = [
+            'Ltg'    => 'Ltg',
+            'Allg'   => 'Allg',
+            'PoEing' => 'PE',
+            'SB'     => 'SB',
+        ];
+        if (isset($map[$name])) return $map[$name];
+
+        $letters = preg_replace('/[^A-Za-zÄÖÜäöüß]/u', '', $name);
+        if ($letters === '') return $name;
+        $first  = mb_strtoupper(mb_substr($letters, 0, 1));
+        $second = mb_strtolower(mb_substr($letters, 1, 1));
+        return $first . $second;
+    }
+
+    protected function composeAppName(?string $effectiveParent, string $childName): string
+    {
+        if ($effectiveParent === null || $effectiveParent === '') {
+            return $childName;
+        }
+        if ($childName === 'AblgOE') {
+            return 'Ab_' . $effectiveParent;
+        }
+        return $effectiveParent . '_' . $this->abbr($childName);
+    }
+
+    protected function nextEffectiveParent(string $currentNodeName, ?string $currentEffectiveParent): ?string
+    {
+        return ($currentNodeName === 'AblgOE') ? $currentEffectiveParent : $currentNodeName;
+    }
+
+    /**
+     * Recompute child appNames; do not overwrite nodes explicitly edited (appNameManual=true).
+     * Also allow auto-propagation for nodes that keep appName==name and not manual.
+     */
+    protected function refreshAppNames(array &$nodes, ?string $parentName, ?string $grandparentName): void
+    {
+        foreach ($nodes as &$n) {
+            $name = $n['name'] ?? '';
+
+            if (!isset($n['appName']) || $n['appName'] === '') {
+                $n['appName'] = $name;
+            }
+            if (!isset($n['appNameManual'])) {
+                $n['appNameManual'] = false;
+            }
+
+            // determine effective parent for THIS node's children
+            $effectiveParent = $parentName;
+            if ($parentName === 'AblgOE') {
+                $effectiveParent = $grandparentName; // skip AblgOE
+            }
+            $nextEffectiveParent = $this->nextEffectiveParent($name, $effectiveParent);
+
+            // apply scheme to children
+            if (!empty($n['children']) && is_array($n['children'])) {
+                foreach ($n['children'] as &$child) {
+                    $childName = $child['name'] ?? '';
+                    $manual = isset($child['appNameManual']) && $child['appNameManual'] === true;
+
+                    // Only auto-compute if NOT manual
+                    if (!$manual) {
+                        // preserve "keep = name" behavior
+                        $keep = isset($child['appName']) && $child['appName'] === $childName;
+                        if (!$keep) {
+                            $child['appName'] = $this->composeAppName($nextEffectiveParent, $childName);
+                        }
+                    }
+                    if (!isset($child['appNameManual'])) {
+                        $child['appNameManual'] = $manual;
+                    }
+                }
+                $this->refreshAppNames($n['children'], $name, $effectiveParent);
+            }
+        }
+    }
+
+    // ================== INPUT NORMALIZATION ==================
+    /** Replace German umlauts with ASCII equivalents in any user-entered field */
+    protected function translitUmlauts(string $s): string
+    {
+        $map = [
+            'Ä' => 'Ae', 'Ö' => 'Oe', 'Ü' => 'Ue',
+            'ä' => 'ae', 'ö' => 'oe', 'ü' => 'ue',
+            'ß' => 'ss',
+        ];
+        return strtr($s, $map);
+    }
+}

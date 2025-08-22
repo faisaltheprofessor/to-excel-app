@@ -8,7 +8,7 @@
 
     $level = count($path);
 
-    // Color palette per level
+    // Per-level colors: [border], [icon (light/dark)], [selected bg (light)], [selected bg (dark)]
     $palette = [
         ['border-red-300',    'text-red-500 dark:text-red-300',       'bg-red-100',    'dark:bg-red-900'],
         ['border-orange-300', 'text-orange-500 dark:text-orange-300', 'bg-orange-100', 'dark:bg-orange-900'],
@@ -22,10 +22,10 @@
         ['border-pink-300',   'text-pink-500 dark:text-pink-300',     'bg-pink-100',   'dark:bg-pink-900'],
         ['border-slate-300',  'text-slate-500 dark:text-slate-300',   'bg-slate-100',  'dark:bg-slate-800'],
     ];
-    $c            = $palette[$level % count($palette)];
-    $borderClass  = $c[0];
-    $iconClass    = $c[1];
-    $bgSelected   = $c[2] . ' ' . $c[3];
+    $c           = $palette[$level % count($palette)];
+    $borderClass = $c[0];
+    $iconClass   = $c[1];
+    $bgSelected  = $c[2] . ' ' . $c[3];
 @endphp
 
 <li
@@ -36,18 +36,19 @@
     data-name='{{ $node['name'] ?? '' }}'
     draggable="true"
 >
-    {{-- BEFORE drop zone --}}
+    {{-- BEFORE drop zone (reorder above) --}}
     <div data-dropzone data-pos="before" class="h-2 -mt-1"></div>
 
-    {{-- CLICKABLE LINE (overlays the border) --}}
+    {{-- Make the real tree line clickable (overlay over the border) --}}
     <button
         type="button"
-        class="absolute left-0 top-0 bottom-0 w-4 cursor-pointer opacity-0 hover:opacity-20 z-40"
+        class="absolute left-0 top-0 bottom-0 w-4 cursor-pointer opacity-0 hover:opacity-20 focus:opacity-20 z-40"
         aria-label="Knoten über Linie auswählen"
+        title="Diesen Knoten auswählen"
         wire:click.stop="selectNode({{ json_encode($path) }})"
     ></button>
 
-    {{-- ROW --}}
+    {{-- ROW (drop INTO here) --}}
     <div
         class="relative flex items-center gap-2 cursor-move
                {{ $isSelected ? $bgSelected.' font-semibold' : 'hover:bg-gray-200 dark:hover:bg-gray-600' }}
@@ -56,23 +57,36 @@
         data-pos="into"
         wire:click.prevent="selectNode({{ json_encode($path) }})"
     >
+        {{-- folder icon hue matches level --}}
         <flux:icon.folder class="w-5 h-5 {{ $iconClass }}" />
 
         {{-- NAME --}}
         <div class="flex items-center gap-1">
             @if ($isEditingName)
-                <input
-                    type="text"
-                    class="pl-1 pr-10 py-0.5 border rounded text-sm w-56"
-                    wire:key="edit-name-{{ $nodeKey }}"
-                    wire:model.live="editValue"
-                    wire:keydown.enter.stop.prevent="saveInlineEdit($event.target.value)"
-                    wire:keydown.escape.stop.prevent="cancelInlineEdit"
-                    autofocus
-                />
+                <div class="relative">
+                    <input
+                        type="text"
+                        class="pl-1 pr-10 py-0.5 border rounded text-sm w-56"
+                        wire:key="edit-name-{{ $nodeKey }}"
+                        wire:model.live="editValue"
+                        wire:keydown.enter.stop.prevent="saveInlineEdit($event.target.value)"
+                        wire:keydown.escape.stop.prevent="cancelInlineEdit"
+                        autofocus
+                    />
+                    {{-- bold ✓ and ✕ controls --}}
+                    <div class="absolute inset-y-0 right-1 flex items-center gap-1">
+                        <button type="button" wire:click.stop="saveInlineEdit" class="p-0.5" title="Speichern">
+                            <flux:icon.check class="w-5 h-5 text-green-600 dark:text-green-400 cursor-pointer stroke-[2.5]" />
+                        </button>
+                        <button type="button" wire:click.stop="cancelInlineEdit" class="p-0.5" title="Abbrechen">
+                            <flux:icon.x-mark class="w-5 h-5 text-red-600 dark:text-red-400 cursor-pointer stroke-[2.5]" />
+                        </button>
+                    </div>
+                </div>
             @else
                 <span
                     class="cursor-text"
+                    title="Doppelklick zum Bearbeiten"
                     wire:dblclick.stop="startInlineEdit({{ json_encode($path) }}, 'name')"
                 >
                     {{ $node['name'] ?? '(ohne Name)' }}
@@ -84,18 +98,30 @@
         <div class="flex items-center gap-1">
             <span class="text-xs text-gray-500 dark:text-gray-100">Nscale:</span>
             @if ($isEditingApp)
-                <input
-                    type="text"
-                    class="pl-1 pr-10 py-0.5 border rounded text-xs w-48"
-                    wire:key="edit-app-{{ $nodeKey }}"
-                    wire:model.live="editValue"
-                    wire:keydown.enter.stop.prevent="saveInlineEdit($event.target.value)"
-                    wire:keydown.escape.stop.prevent="cancelInlineEdit"
-                    autofocus
-                />
+                <div class="relative">
+                    <input
+                        type="text"
+                        class="pl-1 pr-10 py-0.5 border rounded text-xs w-48"
+                        wire:key="edit-app-{{ $nodeKey }}"
+                        wire:model.live="editValue"
+                        wire:keydown.enter.stop.prevent="saveInlineEdit($event.target.value)"
+                        wire:keydown.escape.stop.prevent="cancelInlineEdit"
+                        autofocus
+                    />
+                    {{-- bold ✓ and ✕ controls --}}
+                    <div class="absolute inset-y-0 right-1 flex items-center gap-1">
+                        <button type="button" wire:click.stop="saveInlineEdit" class="p-0.5" title="Speichern">
+                            <flux:icon.check class="w-5 h-5 text-green-600 dark:text-green-400 cursor-pointer stroke-[2.5]" />
+                        </button>
+                        <button type="button" wire:click.stop="cancelInlineEdit" class="p-0.5" title="Abbrechen">
+                            <flux:icon.x-mark class="w-5 h-5 text-red-600 dark:text-red-400 cursor-pointer stroke-[2.5]" />
+                        </button>
+                    </div>
+                </div>
             @else
                 <span
                     class="text-xs text-gray-700 dark:text-gray-300 italic cursor-text"
+                    title="Doppelklick zum Bearbeiten"
                     wire:dblclick.stop="startInlineEdit({{ json_encode($path) }}, 'appName')"
                 >
                     {{ $node['appName'] ?? ($node['name'] ?? '') }}
@@ -128,6 +154,6 @@
         </ul>
     @endif
 
-    {{-- AFTER drop zone --}}
+    {{-- AFTER drop zone (reorder below) --}}
     <div data-dropzone data-pos="after" class="h-2 mb-3"></div>
 </li>
