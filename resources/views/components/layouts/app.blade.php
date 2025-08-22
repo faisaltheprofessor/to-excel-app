@@ -29,6 +29,8 @@
     <flux:navbar class="me-4">
         <flux:button x-data x-on:click="$flux.dark = ! $flux.dark" icon="moon" variant="subtle"
                      aria-label="Toggle dark mode"/>
+
+        <livewire:feedback-widget />
     </flux:navbar>
 
    <flux:dropdown>
