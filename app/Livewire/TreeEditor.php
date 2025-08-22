@@ -194,6 +194,7 @@ class TreeEditor extends Component
             return;
         }
 
+        // capture BEFORE change to know if appName mirrored name
         $before  = $this->getNodeAtPath($this->tree, $this->editNodePath);
         $oldName = $before['name'] ?? null;
         $oldApp  = $before['appName'] ?? null;
@@ -202,15 +203,19 @@ class TreeEditor extends Component
         $fields = [$this->editField => $val];
 
         if ($this->editField === 'name') {
+            // keep appName in sync only if it was auto (oldApp==oldName and not manual)
             if ($oldName !== null && $oldApp === $oldName && !$wasManual) {
                 $fields['appName'] = $val;
                 $fields['appNameManual'] = false;
             }
         } elseif ($this->editField === 'appName') {
+            // mark as manual so refreshAppNames won't overwrite it
             $fields['appNameManual'] = true;
         }
 
         $this->setNodeFieldsByPath($this->tree, $this->editNodePath, $fields);
+
+        // Recompute descendants’ appNames based on the rule (won’t touch manual ones)
         $this->refreshAppNames($this->tree, null, null);
 
         $this->editNodePath = null;
@@ -504,7 +509,7 @@ class TreeEditor extends Component
         $this->moveNode($this->pendingFromPath, $this->pendingToPath, $this->pendingPosition);
 
         $this->pendingFromPath = [];
-               $this->pendingToPath = [];
+        $this->pendingToPath = [];
         $this->pendingPosition = 'into';
         $this->pendingOldParentName = '';
         $this->pendingNewParentName = '';
@@ -663,6 +668,38 @@ class TreeEditor extends Component
     // ================== VALIDATION HELPERS ==================
     protected function invalidNameReason(string $name): ?string
     {
+        // Windows-like rules for filenames/folders (component)
+        // 1) length
+        if (mb_strlen($name) > 255) {
+            return 'Name darf höchstens 255 Zeichen lang sein.';
+        }
+        // 2) disallow only "." or ".."
+        if ($name === '.' || $name === '..') {
+            return 'Name darf nicht "." oder ".." sein.';
+        }
+        // 3) disallow invalid characters: < > : " / \ | ? * and control chars 0x00-0x1F
+        if (preg_match('/[<>:"\/\\\\|?*]/u', $name) || preg_match('/[\x00-\x1F]/u', $name)) {
+            return 'Ungültige Zeichen: < > : " / \\ | ? * oder Steuerzeichen sind nicht erlaubt.';
+        }
+        // 4) no trailing space or dot
+        if (preg_match('/[ \.]$/u', $name)) {
+            return 'Name darf nicht mit einem Punkt oder Leerzeichen enden.';
+        }
+        // 5) reserved device names (case-insensitive), optionally with extension
+        $base = $name;
+        // windows treats trailing dots/spaces as equivalent; we already block them,
+        // but normalize anyway for device-name check
+        $norm = rtrim($base, " .");
+        $upper = mb_strtoupper($norm);
+        $reserved = [
+            'CON','PRN','AUX','NUL',
+            'COM1','COM2','COM3','COM4','COM5','COM6','COM7','COM8','COM9',
+            'LPT1','LPT2','LPT3','LPT4','LPT5','LPT6','LPT7','LPT8','LPT9',
+        ];
+        if (in_array($upper, $reserved, true)) {
+            return 'Name ist unter Windows reserviert (z. B. CON, PRN, AUX, NUL, COM1–COM9, LPT1–LPT9).';
+        }
+        // Existing custom rule: max three hyphens
         if (substr_count($name, '-') > 3) {
             return 'Name darf höchstens drei Bindestriche (-) enthalten.';
         }

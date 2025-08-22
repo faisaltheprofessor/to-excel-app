@@ -66,7 +66,7 @@
                 <div class="relative">
                     <input
                         type="text"
-                        class="pl-1 pr-10 py-0.5 border rounded text-sm w-56"
+                        class="pl-2 pr-12 py-1 border rounded text-sm w-96"
                         wire:key="edit-name-{{ $nodeKey }}"
                         wire:model.live="editValue"
                         wire:keydown.enter.stop.prevent="saveInlineEdit($event.target.value)"
@@ -101,7 +101,7 @@
                 <div class="relative">
                     <input
                         type="text"
-                        class="pl-1 pr-10 py-0.5 border rounded text-xs w-48"
+                        class="pl-2 pr-12 py-1 border rounded text-xs w-80"
                         wire:key="edit-app-{{ $nodeKey }}"
                         wire:model.live="editValue"
                         wire:keydown.enter.stop.prevent="saveInlineEdit($event.target.value)"
