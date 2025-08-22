@@ -6,7 +6,12 @@ use App\Livewire\TreeEditor;
 use Illuminate\Support\Facades\Route;
 use Livewire\Volt\Volt;
 
-Route::get('/', function () {
+
+
+Route::middleware(['auth'])->group(function () {
+
+
+    Route::get('/', function () {
     return redirect("/importer");
 })->name('home');
 
@@ -25,7 +30,8 @@ Route::get('/download-excel/{filename}', function ($filename) {
 })->name('download-excel');
 
 
-Route::middleware(['auth'])->group(function () {
+
+
     Route::redirect('settings', 'settings/profile');
 
     Volt::route('settings/profile', 'settings.profile')->name('settings.profile');

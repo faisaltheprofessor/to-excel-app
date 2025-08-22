@@ -27,6 +27,8 @@ return [
     */
 
     'env' => env('APP_ENV', 'production'),
+    'version' => 'v0.9.0-beta.1',
+    'signature_website' => env('SIGNATURE_WEBSITE', ''),
 
     /*
     |--------------------------------------------------------------------------
@@ -65,7 +67,7 @@ return [
     |
     */
 
-    'timezone' => 'UTC',
+    'timezone' => 'Europe/Berlin',
 
     /*
     |--------------------------------------------------------------------------

@@ -61,8 +61,21 @@ return [
 
     'providers' => [
         'users' => [
-            'driver' => 'eloquent',
-            'model' => env('AUTH_MODEL', App\Models\User::class),
+            'driver' => 'ldap',
+            'model' => App\Ldap\User::class,
+            'rules' => [\App\Ldap\Rules\OnlyFachadmins::class],
+            'database' => [
+                'model' => App\Models\User::class,
+                'sync_passwords' => false,
+                'sync_attributes' => [
+                    'name' => 'givenName',
+                    'email' => 'email',
+                    'username' => 'sAMAccountName',
+                ],
+                'sync_existing' => [
+                    'username' => 'sAMAccountName',
+                ],
+            ],
         ],
 
         // 'users' => [
