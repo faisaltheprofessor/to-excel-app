@@ -79,7 +79,37 @@ class TreeEditor extends Component
         $this->dispatch('autosaved');
     }
 
-    public function updatedTitle(): void       { $this->persist(); }
+public function updatedTitle(): void
+{
+    // Build a candidate to validate/save, but DON'T overwrite the input yet
+    $candidate = $this->normalizeTitle((string)$this->title);
+
+    // Empty / Windows-style rules
+    if ($candidate === '') {
+        $this->addError('title', 'Name darf nicht leer sein.');
+        return;
+    }
+    if ($reason = $this->invalidNameReason($candidate)) {
+        $this->addError('title', $reason);
+        return;
+    }
+
+    // Case-insensitive uniqueness (exclude current record)
+    $exists = TreeModel::query()
+        ->whereRaw('LOWER(title) = ?', [mb_strtolower($candidate)])
+        ->where('id', '!=', $this->treeId)
+        ->exists();
+
+    if ($exists) {
+        $this->addError('title', 'Name ist bereits vergeben (Groß-/Kleinschreibung unbeachtet).');
+        return;
+    }
+
+    // Passed: clear errors, now commit the normalized value
+    $this->resetErrorBag('title');
+    $this->title = $candidate;
+    $this->persist();
+}
     public function updatedNewNodeName(): void { $this->resetValidation(); }
     public function updatedNewAppName(): void  { $this->resetValidation(); }
     public function updatedEditValue(): void   { $this->resetValidation(); }
@@ -797,4 +827,10 @@ class TreeEditor extends Component
         ];
         return strtr($s, $map);
     }
+
+    protected function normalizeTitle(string $s): string
+{
+    $s = preg_replace('/\s+/u', ' ', $s ?? '');
+    return trim($s);
+}
 }

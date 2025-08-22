@@ -3,10 +3,8 @@
     <div class="flex items-center gap-3">
         <flux:heading size="lg" class="flex-1">Organisationseinheit</flux:heading>
 
-        {{-- Neu = open new tab that creates a draft and redirects to editor --}}
-        <a href="{{ route('importer.new') }}" wire:navigate>
-            <flux:button variant="primary" class="cursor-pointer">Neu</flux:button>
-        </a>
+        {{-- Neu = modal prompt + create + redirect to editor --}}
+        <livewire:new-structure />
     </div>
 
     {{-- Search --}}
@@ -39,7 +37,11 @@
                 </div>
             </a>
         @empty
-            <div class="text-zinc-500">Noch keine OEs vorhanden.</div>
+            <div class="text-zinc-500 flex items-center gap-3">
+                Noch keine OEs vorhanden.
+                {{-- Provide a quick way to create the first one --}}
+                <livewire:new-structure />
+            </div>
         @endforelse
     </div>
 </div>

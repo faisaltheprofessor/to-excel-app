@@ -1,6 +1,6 @@
 <?php
 
-use App\Livewire\CreateImporter;
+
 use App\Livewire\Importer;
 use App\Livewire\TreeEditor;
 use Illuminate\Support\Facades\Route;
@@ -10,14 +10,6 @@ Route::get('/', function () {
     return redirect("/importer");
 })->name('home');
 
-
-Route::get('/importer/new', function () {
-    $draft = \App\Models\OrganizationStructure::create([
-        'title' => 'Unbenannter Struktur',
-        'data'  => [],
-    ]);
-    return redirect()->route('importer.edit', $draft->id);
-})->name('importer.new');
 
 Route::get('/importer/{tree}', TreeEditor::class)->name('importer.edit');
 

@@ -1,13 +1,19 @@
 {{-- Full-height, page scroll locked; only tree scrolls --}}
 <div class="h-screen overflow-hidden flex flex-col">
     {{-- Header (title + info) --}}
-    <div class="p-6 pb-2 flex items-center gap-3 shrink-0">
-        <flux:input
-            wire:model.debounce.600ms="title"
-            placeholder="Titel des Baums"
-            class="flex-1"
-        />
-        <div class="text-xs text-zinc-500">ID: {{ $treeId }}</div>
+    <div class="p-6 pb-2 flex flex-col gap-1 shrink-0">
+        <div class="flex items-center gap-3">
+            <flux:input
+                wire:model.blur="title"
+                placeholder="Titel des Baums"
+                class="flex-1"
+            />
+            <div class="text-xs text-zinc-500">ID: {{ $treeId }}</div>
+        </div>
+        {{-- Title error (Windows rules / CI-unique) --}}
+        @error('title')
+            <div class="text-sm text-red-600">{{ $message }}</div>
+        @enderror
     </div>
 
     {{-- Add form (frozen at top) --}}
