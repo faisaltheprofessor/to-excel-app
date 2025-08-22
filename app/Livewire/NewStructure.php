@@ -32,7 +32,7 @@ class NewStructure extends Component
             ->exists();
 
         if ($exists) {
-            $this->addError('title', 'Name ist bereits vergeben (Groß-/Kleinschreibung unbeachtet).');
+            $this->addError('title', 'Name ist bereits vergeben.');
             return;
         }
 

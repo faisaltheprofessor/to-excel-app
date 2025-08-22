@@ -73,7 +73,7 @@
 <flux:main container>
     <flux:heading size="xl" level="1">Hallo, {{ Str::title(Auth::user()->name) }}</flux:heading>
 
-    <flux:text class="mt-2 mb-6 text-base">Importer-Datei erstellen</flux:text>
+    <flux:text class="mt-2 mb-6 text-base">Importer-Datei leicht gemacht</flux:text>
 
     {{ $slot }}
     <flux:separator variant="subtle"/>
