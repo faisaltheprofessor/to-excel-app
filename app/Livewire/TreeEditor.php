@@ -81,8 +81,10 @@ class TreeEditor extends Component
 
 public function updatedTitle(): void
 {
-    // Build a candidate to validate/save, but DON'T overwrite the input yet
-    $candidate = $this->normalizeTitle((string)$this->title);
+    // Normalize: trim + collapse spaces + replace umlauts
+    $candidate = $this->translitUmlauts(
+        $this->normalizeTitle((string)$this->title)
+    );
 
     // Empty / Windows-style rules
     if ($candidate === '') {
@@ -105,7 +107,7 @@ public function updatedTitle(): void
         return;
     }
 
-    // Passed: clear errors, now commit the normalized value
+    // Passed: clear errors, persist
     $this->resetErrorBag('title');
     $this->title = $candidate;
     $this->persist();

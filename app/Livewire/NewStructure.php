@@ -11,31 +11,39 @@ class NewStructure extends Component
 
     public function create()
     {
-        // 0) Normalize: trim + collapse multiple spaces
-        $normalized = $this->normalizeTitle($this->title);
-        $this->title = $normalized; // reflect back to UI
+        // Build a candidate (don’t overwrite input yet)
+        $candidate = $this->translitUmlauts(
+            $this->normalizeTitle($this->title)
+        );
 
         // 1) Windows-like validation
-        if ($reason = $this->invalidNameReason($normalized)) {
+        if ($candidate === '') {
+            $this->addError('title', 'Name darf nicht leer sein.');
+            return;
+        }
+        if ($reason = $this->invalidNameReason($candidate)) {
             $this->addError('title', $reason);
             return;
         }
 
-        // 2) Case-insensitive uniqueness (on normalized title)
+        // 2) Case-insensitive uniqueness (on candidate)
         $exists = OrganizationStructure::query()
-            ->whereRaw('LOWER(title) = ?', [mb_strtolower($normalized)])
+            ->whereRaw('LOWER(title) = ?', [mb_strtolower($candidate)])
             ->exists();
 
         if ($exists) {
-            $this->addError('title', 'Name ist bereits vergeben');
+            $this->addError('title', 'Name ist bereits vergeben (Groß-/Kleinschreibung unbeachtet).');
             return;
         }
 
-        // 3) Create
+        // 3) Create with transliterated + normalized title
         $draft = OrganizationStructure::create([
-            'title' => $normalized,
+            'title' => $candidate,
             'data'  => [],
         ]);
+
+        // Optionally reflect the cleaned value in the UI (not required; we redirect anyway)
+        // $this->title = $candidate;
 
         return $this->redirectRoute('importer.edit', $draft->id);
     }
@@ -48,17 +56,24 @@ class NewStructure extends Component
     /** Trim + collapse inner whitespace to a single space */
     protected function normalizeTitle(string $s): string
     {
-        // Convert all whitespace runs (tabs, newlines, multi-spaces) to single space
         $s = preg_replace('/\s+/u', ' ', $s ?? '');
-        // Trim leading/trailing spaces
-        $s = trim($s);
-        return $s;
+        return trim($s);
+    }
+
+    /** German umlauts -> ASCII */
+    protected function translitUmlauts(string $s): string
+    {
+        $map = [
+            'Ä' => 'Ae', 'Ö' => 'Oe', 'Ü' => 'Ue',
+            'ä' => 'ae', 'ö' => 'oe', 'ü' => 'ue',
+            'ß' => 'ss',
+        ];
+        return strtr($s, $map);
     }
 
     /** Windows-like name validation */
     protected function invalidNameReason(string $name): ?string
     {
-        if ($name === '') return 'Name darf nicht leer sein.';
         if (mb_strlen($name) > 255) return 'Name darf höchstens 255 Zeichen lang sein.';
         if ($name === '.' || $name === '..') return 'Name darf nicht "." oder ".." sein.';
         if (preg_match('/[<>:"\/\\\\|?*]/u', $name) || preg_match('/[\x00-\x1F]/u', $name)) {
