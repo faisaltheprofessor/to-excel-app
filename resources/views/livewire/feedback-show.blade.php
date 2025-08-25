@@ -1,115 +1,89 @@
 @php use Illuminate\Support\Js; @endphp
 <div class="p-6 space-y-8">
-    <div class="flex items-start gap-4">
-        <flux:heading size="lg" class="flex-1">Feedback-Details</flux:heading>
-        <a href="{{ route('feedback.index') }}" class="text-sm text-zinc-600 dark:text-zinc-300 hover:underline">Alle Feedbacks</a>
+    <div class="flex items-start justify-between">
+        <flux:heading size="lg">Feedback</flux:heading>
+        <a href="{{ route('feedback.index') }}" class="text-sm text-zinc-600 dark:text-zinc-300 hover:underline">
+            Zurück zur Übersicht
+        </a>
     </div>
 
+    {{-- Primary card: clean view + quick edit --}}
     <flux:card>
-        <div class="p-4 space-y-4">
-            {{-- Header --}}
-            <div class="flex items-center flex-wrap gap-2">
-                {{-- Typ --}}
-                <span class="text-xs rounded px-2 py-0.5 bg-zinc-100 dark:bg-zinc-700">
-                    @if($feedback->type==='bug') Bug
-                    @elseif($feedback->type==='suggestion') Feature
-                    @else Frage
+        <div class="p-6 space-y-5">
+
+            {{-- Title --}}
+            <h2 class="text-xl md:text-2xl font-semibold text-zinc-900 dark:text-zinc-100">
+                {{ $feedback->title }}
+            </h2>
+
+            {{-- Meta badges (compact) --}}
+            <div class="flex flex-wrap items-center gap-2 text-sm">
+                {{-- Type (with legacy mapping) --}}
+                <span class="px-2 py-0.5 rounded bg-zinc-100 dark:bg-zinc-700">
+                    @php $t = $feedback->type; @endphp
+                    @if($t==='bug') Fehler
+                    @elseif($t==='feature' || $t==='suggestion') Vorschlag
+                    @elseif($t==='feedback' || $t==='question') Feedback
+                    @else {{ ucfirst($t) }}
                     @endif
                 </span>
 
+                {{-- Status --}}
                 @php
-                    $statusMap = [
-                        'open'        => 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-200',
-                        'in_progress' => 'bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200',
-                        'resolved'    => 'bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-200',
-                        'closed'      => 'bg-zinc-100 text-zinc-800 dark:bg-zinc-800 dark:text-zinc-200',
-                        'wontfix'     => 'bg-rose-100 text-rose-800 dark:bg-rose-900/40 dark:text-rose-200',
+                    $statusDe = [
+                        'open'=>'Offen','in_progress'=>'In Arbeit','resolved'=>'Gelöst',
+                        'closed'=>'Geschlossen','wontfix'=>'Wird nicht behoben'
                     ];
-                    $prioMap = [
-                        'low'    => 'bg-zinc-100 text-zinc-800 dark:bg-zinc-800 dark:text-zinc-200',
-                        'normal' => 'bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-200',
-                        'high'   => 'bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200',
-                        'urgent' => 'bg-rose-100 text-rose-800 dark:bg-rose-900/40 dark:text-rose-200',
-                    ];
-                    $prioDe = [
-                        'low'    => 'Niedrig',
-                        'normal' => 'Normal',
-                        'high'   => 'Hoch',
-                        'urgent' => 'Dringend',
-                    ];
+                    $prioDe = ['low'=>'Niedrig','normal'=>'Normal','high'=>'Hoch','urgent'=>'Dringend'];
                 @endphp
-
-                {{-- Status (bearbeitbar) --}}
-                <flux:select wire:model.live="status" class="h-7 px-2 text-xs">
-                    @foreach(\App\Models\Feedback::STATUSES as $s)
-                        <option value="{{ $s }}">{{ [
-                            'open'=>'Offen','in_progress'=>'In Arbeit','resolved'=>'Gelöst','closed'=>'Geschlossen','wontfix'=>'Wird nicht behoben'
-                        ][$s] }}</option>
-                    @endforeach
-                </flux:select>
-                <span class="text-xs rounded px-2 py-0.5 {{ $statusMap[$status] ?? 'bg-zinc-100' }}">
-                    {{ [
-                        'open'=>'Offen','in_progress'=>'In Arbeit','resolved'=>'Gelöst','closed'=>'Geschlossen','wontfix'=>'Wird nicht behoben'
-                    ][$status] ?? $status }}
+                <span class="px-2 py-0.5 rounded bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-200">
+                    {{ $statusDe[$status] ?? ucfirst($status) }}
                 </span>
 
-                {{-- Priorität (bearbeitbar) --}}
-                <flux:select wire:model.live="priority" class="h-7 px-2 text-xs">
-                    @foreach(\App\Models\Feedback::PRIORITIES as $p)
-                        <option value="{{ $p }}">{{ $prioDe[$p] ?? ucfirst($p) }}</option>
-                    @endforeach
-                </flux:select>
-                <span class="text-xs rounded px-2 py-0.5 {{ $prioMap[$priority] ?? 'bg-zinc-100' }}">
+                {{-- Priority --}}
+                <span class="px-2 py-0.5 rounded bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200">
                     {{ $prioDe[$priority] ?? ucfirst($priority) }}
                 </span>
 
-                {{-- Autor + Datum --}}
-                <span class="text-xs text-zinc-600 dark:text-zinc-300">{{ $feedback->user?->name ?? 'Anonym' }}</span>
-                <span class="text-xs text-zinc-500">{{ $feedback->created_at->format('d.m.Y H:i') }}</span>
-
-                @if($feedback->url)
-                    <a href="{{ $feedback->url }}" target="_blank" class="text-xs text-blue-600 hover:underline">Seite öffnen</a>
-                @endif
+                <span class="text-zinc-400">•</span>
+                <span class="text-zinc-500">{{ $feedback->user?->name ?? 'Anonym' }}</span>
+                <span class="text-zinc-500">{{ $feedback->created_at->format('d.m.Y H:i') }}</span>
             </div>
 
-            {{-- Nachricht --}}
-            <div class="whitespace-pre-wrap">{{ $feedback->message }}</div>
-
-            {{-- Tags --}}
-            <div class="space-y-2">
-                <div class="text-xs text-zinc-500">Tags</div>
-                <div class="flex flex-wrap gap-1">
-                    @foreach($tags as $i => $tg)
-                        <span class="inline-flex items-center gap-1 text-[11px] rounded-full px-2 py-0.5 bg-indigo-50 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-200">
-                            #{{ $tg }}
-                            <button class="ml-1" wire:click="$set('tags', {{ collect($tags)->except($i)->values()->toJson() }})">×</button>
-                        </span>
-                    @endforeach
-
-                    {{-- Tag hinzufügen --}}
-                    <form wire:submit.prevent="addTag" class="flex items-center gap-2">
-                        <flux:input class="w-48 h-7 text-xs" placeholder="Tag hinzufügen…" wire:model.defer="tagInput" name="tagInput" />
-                        <flux:button size="xs" type="submit">Hinzufügen</flux:button>
-                    </form>
+            {{-- Quick edit bar --}}
+            <div class="flex flex-wrap items-center gap-2 rounded-xl bg-zinc-50 dark:bg-zinc-900/40 p-3">
+                <div class="flex items-center gap-2">
+                    <span class="text-xs text-zinc-500">Status</span>
+                    <flux:select size="xs" wire:model.live="status" class="h-7">
+                        @foreach(\App\Models\Feedback::STATUSES as $s)
+                            <option value="{{ $s }}">{{ $statusDe[$s] ?? ucfirst($s) }}</option>
+                        @endforeach
+                    </flux:select>
                 </div>
 
-                {{-- Tag-Vorschläge --}}
-                <div class="flex flex-wrap gap-1">
-                    @foreach($tagSuggestions as $sug)
-                        <flux:button size="xs" variant="subtle" wire:click="addTag({{ Js::from($sug) }})">#{{ $sug }}</flux:button>
-                    @endforeach
+                <div class="flex items-center gap-2">
+                    <span class="text-xs text-zinc-500">Priorität</span>
+                    <flux:select size="xs" wire:model.live="priority" class="h-7">
+                        @foreach(\App\Models\Feedback::PRIORITIES as $p)
+                            <option value="{{ $p }}">{{ $prioDe[$p] ?? ucfirst($p) }}</option>
+                        @endforeach
+                    </flux:select>
                 </div>
 
-                <div>
-                    <flux:button size="xs" wire:click="saveMeta">Meta speichern</flux:button>
-                </div>
+                <flux:spacer />
+                <flux:button size="xs" variant="outline" wire:click="saveMeta">Änderungen speichern</flux:button>
             </div>
 
-            {{-- Anhänge --}}
+            {{-- Description --}}
+            <div class="prose dark:prose-invert max-w-none whitespace-pre-wrap text-[15px] leading-6">
+                {{ $feedback->message }}
+            </div>
+
+            {{-- Attachments --}}
             @php $attachments = $attachments ?? []; @endphp
             @if(is_array($attachments) && count($attachments))
-                <div class="pt-2">
-                    <div class="text-xs text-zinc-500 mb-1">Anhänge:</div>
+                <div class="space-y-1">
+                    <div class="text-xs text-zinc-500">Anhänge</div>
                     <ul class="text-sm space-y-1">
                         @foreach($attachments as $i => $path)
                             <li>
@@ -122,7 +96,35 @@
                 </div>
             @endif
 
-            {{-- Reaktionen (Top-Level) --}}
+            {{-- Tags (view-only + remove; quick suggestions to add) --}}
+            @if($tags && count($tags))
+                <div class="space-y-2">
+                    <div class="text-xs text-zinc-500">Tags</div>
+
+                    <div class="flex flex-wrap items-center gap-1">
+                        @foreach($tags as $i => $tg)
+                            <span class="inline-flex items-center gap-1 text-[11px] rounded-full px-2 py-0.5 bg-indigo-50 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-200">
+                                #{{ $tg }}
+                                <button class="ml-1" wire:click="removeTag({{ $i }})" title="Entfernen">×</button>
+                            </span>
+                        @endforeach
+                    </div>
+                </div>
+            @endif
+
+            {{-- Quick-add tag suggestions (keine freie Eingabe) --}}
+            @if(!empty($tagSuggestions))
+                <div class="space-y-1">
+                    <div class="text-xs text-zinc-500">Vorschläge</div>
+                    <div class="flex flex-wrap gap-1">
+                        @foreach($tagSuggestions as $sug)
+                            <flux:button size="xs" variant="subtle" wire:click="addTag({{ Js::from($sug) }})">#{{ $sug }}</flux:button>
+                        @endforeach
+                    </div>
+                </div>
+            @endif
+
+            {{-- Reactions (top-level) --}}
             @include('livewire.partials.reactions', [
                 'targetFeedback' => $feedback,
                 'commentId' => null,
@@ -131,77 +133,84 @@
         </div>
     </flux:card>
 
-    {{-- Unterhaltung --}}
-    <div class="space-y-6">
-        <flux:heading size="md">Unterhaltung</flux:heading>
+    {{-- Comments (clean, with mentions dropdown) --}}
+    <flux:card>
+        <div class="p-6 space-y-5">
+            <flux:heading size="md">Kommentare</flux:heading>
 
-        {{-- Antwort-Editor mit Mentions --}}
-        <div
-            x-data="mentionBox({
-                getText:   () => $refs.replyTa.value,
-                setText:   (v) => { $refs.replyTa.value = v; $wire.set('reply', v) },
-                setQuery:  (q) => $wire.set('mentionQuery', q),
-                open:      () => $wire.set('mentionOpen', true),
-                close:     () => $wire.call('closeMentions'),
-                isOpen:    () => $wire.get('mentionOpen'),
-                results:   () => $wire.get('mentionResults'),
-            })"
-            x-on:keydown.escape.prevent.stop="close()"
-            class="space-y-2 relative"
-        >
-            <flux:textarea
-                x-ref="replyTa"
-                rows="3"
-                wire:model.defer="reply"
-                placeholder="Antwort schreiben … (mit &#64;Namen erwähnen)"
-                x-on:keyup="detect($event)"
-                x-on:click="detect($event)"
-                x-on:keydown.enter.prevent="maybePick($event)"
-            />
-            @error('reply') <div class="text-sm text-red-600">{{ $message }}</div> @enderror
-
-            {{-- Mentions-Dropdown --}}
+            {{-- new comment with mentions --}}
             <div
-                class="absolute z-50 mt-1 w-72 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 shadow"
-                x-show="$wire.mentionOpen"
-                x-transition
-                x-on:click.outside="$wire.call('closeMentions')"
+                x-data="mentionBox({
+                    getText:   () => $refs.replyTa.value,
+                    setText:   (v) => { $refs.replyTa.value = v; $wire.set('reply', v) },
+                    setQuery:  (q) => $wire.set('mentionQuery', q),
+                    open:      () => $wire.set('mentionOpen', true),
+                    close:     () => $wire.call('closeMentions'),
+                    isOpen:    () => $wire.get('mentionOpen'),
+                    results:   () => $wire.get('mentionResults'),
+                })"
+                x-on:keydown.escape.prevent.stop="close()"
+                class="space-y-2 relative"
             >
-                <div class="px-3 py-2 text-xs text-zinc-500 border-b border-zinc-100 dark:border-zinc-700">
-                    Personen erwähnen
+                <flux:textarea
+                    x-ref="replyTa"
+                    rows="3"
+                    wire:model.defer="reply"
+                    placeholder="Antwort schreiben … (mit &#64;Namen erwähnen)"
+                    x-on:keyup="detect($event)"
+                    x-on:click="detect($event)"
+                    x-on:keydown.enter.prevent="maybePick($event)"
+                />
+                @error('reply') <div class="text-sm text-red-600">{{ $message }}</div> @enderror
+
+                {{-- Mentions dropdown --}}
+                <div
+                    class="absolute z-50 mt-1 w-72 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 shadow"
+                    x-show="$wire.mentionOpen"
+                    x-transition
+                    x-on:click.outside="$wire.call('closeMentions')"
+                >
+                    <div class="px-3 py-2 text-xs text-zinc-500 border-b border-zinc-100 dark:border-zinc-700">
+                        Personen erwähnen
+                    </div>
+
+                    @if (empty($mentionResults))
+                        <div class="px-3 py-2 text-sm text-zinc-500">Keine Treffer</div>
+                    @else
+                        <ul class="max-h-64 overflow-auto">
+                            @foreach($mentionResults as $u)
+                                <li>
+                                    <button
+                                        type="button"
+                                        class="w-full text-left px-3 py-2 hover:bg-zinc-50 dark:hover:bg-zinc-700"
+                                        data-name="{{ e($u['name']) }}"
+                                        x-on:click="insert(String.fromCharCode(64) + $el.dataset.name + ' ')"
+                                    >
+                                        <span>&#64;{{ $u['name'] }}</span>
+                                    </button>
+                                </li>
+                            @endforeach
+                        </ul>
+                    @endif
                 </div>
-                @if (empty($mentionResults))
-                    <div class="px-3 py-2 text-sm text-zinc-500">Keine Treffer</div>
-                @else
-                    <ul class="max-h-64 overflow-auto">
-                        @foreach($mentionResults as $u)
-                            <li>
-                                <button type="button"
-                                    class="w-full text-left px-3 py-2 hover:bg-zinc-50 dark:hover:bg-zinc-700"
-                                    x-on:click='insert(String.fromCharCode(64) + {{ Js::from($u["name"]) }} + " ")'
-                                ><span>&#64;{{ $u['name'] }}</span></button>
-                            </li>
-                        @endforeach
-                    </ul>
-                @endif
+
+                <div class="flex items-center gap-2">
+                    <flux:spacer />
+                    <flux:button size="sm" wire:click="send">Senden</flux:button>
+                </div>
             </div>
 
-            <div class="flex items-center gap-2">
-                <flux:spacer />
-                <flux:button size="sm" wire:click="send">Senden</flux:button>
+            {{-- thread --}}
+            <div class="space-y-4">
+                @foreach($rootComments as $c)
+                    @include('livewire.partials.feedback-comment', ['comment' => $c, 'level' => 0])
+                @endforeach
             </div>
         </div>
-
-        {{-- Thread --}}
-        <div class="space-y-4">
-            @foreach($rootComments as $c)
-                @include('livewire.partials.feedback-comment', ['comment' => $c, 'level' => 0])
-            @endforeach
-        </div>
-    </div>
+    </flux:card>
 </div>
 
-{{-- Script: Mentions-Helper (sicher, kein rohes "@") --}}
+{{-- Mentions helper (safe; no @js) --}}
 <script>
 window.mentionBox = function(api) {
     const AT = String.fromCharCode(64); // "@"
@@ -212,9 +221,8 @@ window.mentionBox = function(api) {
             const val = ta.value ?? '';
             const pos = ta.selectionStart ?? 0;
             const prefix = val.slice(0, pos);
-            const rx = new RegExp(AT + '([\\p{L}\\p{M}\\.\\- ]{1,50})$', 'u'); // @Name…
+            const rx = new RegExp(AT + '([\\p{L}\\p{M}\\.\\- ]{1,50})$', 'u');
             const match = prefix.match(rx);
-
             if (match) {
                 const q = (match[1] || '').trim();
                 const start = pos - match[0].length;

@@ -22,8 +22,8 @@ class FeedbackShow extends Component
     public array $tags = [];
     public string $priority = 'normal';
 
-    /** Tag input field (used by wire:model) */
-    public string $tagInput = ''; // <-- FIX: define the property
+    /** Tag input field was removed from UI; keep prop in case of internal use */
+    public string $tagInput = '';
 
     public array $quickEmojis = ['👍','❤️','🎉','🚀','👀'];
 
@@ -125,30 +125,54 @@ class FeedbackShow extends Component
         $this->mentionOpen = false;
     }
 
-    /** Add a tag – can be called via button param or form using $tagInput */
+    /** Persist tags to DB and refresh local model */
+    protected function persistTags(): void
+    {
+        $clean = array_values(array_unique(array_filter(array_map('trim', $this->tags))));
+        if (empty($clean)) {
+            $clean = ['UI Improvement'];
+        }
+
+        $this->feedback->update(['tags' => $clean]);
+        $this->tags = $clean;
+        // optional toast/event
+        // $this->dispatch('notify', body: 'Tags gespeichert.');
+    }
+
+    /** Add a tag (from quick-suggestions or internal use) and save immediately */
     public function addTag(?string $t = null): void
     {
         $t = $t ?? $this->tagInput ?? '';
         $t = trim($t);
         if ($t === '') return;
 
-        $this->tags = array_values(array_unique([...($this->tags ?? []), $t]));
+        $this->tags = array_values(array_unique([...$this->tags, $t]));
         $this->tagInput = '';
+        $this->persistTags(); // <- auto-save
     }
 
+    /** Remove a tag by index and save immediately */
+    public function removeTag(int $index): void
+    {
+        if (!isset($this->tags[$index])) return;
+
+        unset($this->tags[$index]);
+        $this->tags = array_values($this->tags);
+        $this->persistTags(); // <- auto-save
+    }
+
+    /** Save status/priority/meta (manual action) */
     public function saveMeta(): void
     {
         $status   = in_array($this->status, \App\Models\Feedback::STATUSES, true) ? $this->status : 'open';
         $prio     = in_array($this->priority, \App\Models\Feedback::PRIORITIES, true) ? $this->priority : 'normal';
-        $tags     = array_values(array_unique(array_filter(array_map('trim', $this->tags))));
 
         $this->feedback->update([
             'status'   => $status,
             'priority' => $prio,
-            'tags'     => $tags ?: ['UI Improvement'],
         ]);
 
-        $this->dispatch('notify', body: 'Gespeichert.');
+        $this->dispatch('notify', body: 'Änderungen gespeichert.');
     }
 
     public function render()

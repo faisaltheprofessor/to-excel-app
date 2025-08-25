@@ -20,9 +20,7 @@ class Feedback extends Model
     ];
 
     public const TAG_SUGGESTIONS = [
-        'UI Improvement','Performance','Bug','Accessibility','Docs','DevEx','Feature',
-        'Security','API','Design','Mobile','Onboarding','Search',
-    ];
+        'UI','Performance','Bug', 'Importer', 'Excel', 'Vorschlag'];
 
     public const STATUSES   = ['open','in_progress','resolved','closed','wontfix'];
     public const PRIORITIES = ['low','normal','high','urgent'];
