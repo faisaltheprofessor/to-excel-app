@@ -6,11 +6,36 @@
 
     <div class="flex flex-wrap items-center gap-3">
         <flux:input class="w-72" placeholder="Suche…" wire:model.debounce.300ms="q" />
+
         <flux:select class="w-56" wire:model.live="type">
             <option value="all">Alle Typen</option>
             <option value="bug">Fehler</option>
             <option value="suggestion">Vorschlag</option>
-            <option value="question">Frage</option>
+            <option value="question">Feedback</option>
+        </flux:select>
+
+        <flux:select class="w-56" wire:model.live="status">
+            <option value="all">Alle Stati</option>
+            <option value="open">Offen</option>
+            <option value="in_progress">In Arbeit</option>
+            <option value="resolved">Gelöst</option>
+            <option value="closed">Geschlossen</option>
+            <option value="wontfix">Wird nicht behoben</option>
+        </flux:select>
+
+        <flux:select class="w-56" wire:model.live="priority">
+            <option value="all">Alle Prioritäten</option>
+            <option value="low">Niedrig</option>
+            <option value="normal">Normal</option>
+            <option value="high">Hoch</option>
+            <option value="urgent">Dringend</option>
+        </flux:select>
+
+        <flux:select class="w-56" wire:model.live="tag">
+            <option value="all">Alle Tags</option>
+            @foreach($allTags as $t)
+                <option value="{{ $t }}">{{ $t }}</option>
+            @endforeach
         </flux:select>
     </div>
 
@@ -20,17 +45,71 @@
                class="rounded-xl border border-zinc-200 dark:border-zinc-700 p-4 hover:bg-zinc-50 dark:hover:bg-zinc-800 transition">
                 <div class="flex items-start gap-3">
                     <flux:icon.chat-bubble-left-ellipsis class="w-6 h-6 text-blue-600" />
-                    <div class="min-w-0">
-                        <div class="flex items-center gap-2">
+                    <div class="min-w-0 w-full">
+                        {{-- badges --}}
+                        <div class="flex items-center flex-wrap gap-2">
+                            {{-- Typ --}}
                             <span class="text-xs rounded px-2 py-0.5 bg-zinc-100 dark:bg-zinc-700">
-                                @if($f->type==='bug') Fehler
-                                @elseif($f->type==='suggestion') Vorschlag
-                                @else Frage
+                                @if($f->type==='bug') Bug
+                                @elseif($f->type==='suggestion') Feature
+                                @else Feedback
                                 @endif
                             </span>
+
+                            @php
+                                $statusMap = [
+                                    'open' => 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-200',
+                                    'in_progress' => 'bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200',
+                                    'resolved' => 'bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-200',
+                                    'closed' => 'bg-zinc-100 text-zinc-800 dark:bg-zinc-800 dark:text-zinc-200',
+                                    'wontfix' => 'bg-rose-100 text-rose-800 dark:bg-rose-900/40 dark:text-rose-200',
+                                ];
+                                $prioMap = [
+                                    'low'    => 'bg-zinc-100 text-zinc-800 dark:bg-zinc-800 dark:text-zinc-200',
+                                    'normal' => 'bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-200',
+                                    'high'   => 'bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200',
+                                    'urgent' => 'bg-rose-100 text-rose-800 dark:bg-rose-900/40 dark:text-rose-200',
+                                ];
+                                $prioDe = ['low'=>'Niedrig','normal'=>'Normal','high'=>'Hoch','urgent'=>'Dringend'];
+                            @endphp
+
+                            {{-- Status --}}
+                            <span class="text-xs rounded px-2 py-0.5 {{ $statusMap[$f->status] ?? 'bg-zinc-100' }}">
+                                {{ [
+                                    'open'=>'Offen','in_progress'=>'In Arbeit','resolved'=>'Gelöst','closed'=>'Geschlossen','wontfix'=>'Wird nicht behoben'
+                                ][$f->status] ?? $f->status }}
+                            </span>
+
+                            {{-- Priorität --}}
+                            <span class="text-xs rounded px-2 py-0.5 {{ $prioMap[$f->priority ?? 'normal'] }}">
+                                {{ $prioDe[$f->priority ?? 'normal'] }}
+                            </span>
+
+                            {{-- Autor + Zeit --}}
+                            <span class="text-xs text-zinc-600 dark:text-zinc-300">{{ $f->user?->name ?? 'Anonym' }}</span>
                             <span class="text-xs text-zinc-500">{{ $f->created_at->format('d.m.Y H:i') }}</span>
                         </div>
-                        <div class="mt-1 font-medium line-clamp-2">{{ Str::limit($f->message, 140) }}</div>
+
+                        {{-- Title --}}
+                        <div class="mt-2 font-semibold text-base text-zinc-900 dark:text-zinc-100 line-clamp-1">
+                            {{ $f->title }}
+                        </div>
+
+                        {{-- Description / message --}}
+                        <div class="mt-1 text-sm text-zinc-600 dark:text-zinc-300 line-clamp-2">
+                            {{ $f->message }}
+                        </div>
+
+                        {{-- Tags --}}
+                        @if($f->tags)
+                            <div class="mt-2 flex flex-wrap gap-1">
+                                @foreach($f->tags as $tg)
+                                    <span class="inline-flex items-center text-[11px] rounded-full px-2 py-0.5 bg-indigo-50 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-200">#{{ $tg }}</span>
+                                @endforeach
+                            </div>
+                        @endif
+
+                        {{-- Meta info --}}
                         <div class="mt-2 text-xs text-zinc-500">
                             {{ $f->comments()->count() }} Kommentare
                             @if(is_array($f->attachments) && count($f->attachments))

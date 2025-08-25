@@ -16,7 +16,10 @@ class FeedbackWidget extends Component
     /** bug | suggestion | question */
     public string $type = 'bug';
 
-    /** Nachrichtentext */
+    /** Kurzer Titel des Anliegens */
+    public string $title = '';
+
+    /** Beschreibung / Nachrichtentext */
     public string $message = '';
 
     /** @var array<\Livewire\Features\SupportFileUploads\TemporaryUploadedFile> */
@@ -29,6 +32,7 @@ class FeedbackWidget extends Component
     {
         return [
             'type'       => 'required|in:bug,suggestion,question',
+            'title'      => 'required|string|min:3|max:200',
             'message'    => 'required|string|min:5|max:5000',
             'uploads.*'  => 'file|max:10240|mimes:jpg,jpeg,png,webp,gif,mp4,mov,avi,webm',
         ];
@@ -37,14 +41,17 @@ class FeedbackWidget extends Component
     protected function messages(): array
     {
         return [
-            'type.required'      => 'Bitte wählen Sie einen Typ.',
-            'type.in'            => 'Ungültiger Typ.',
-            'message.required'   => 'Bitte beschreiben Sie Ihr Anliegen.',
-            'message.min'        => 'Die Nachricht ist zu kurz.',
-            'message.max'        => 'Die Nachricht ist zu lang.',
-            'uploads.*.file'     => 'Ungültige Datei.',
-            'uploads.*.max'      => 'Datei zu groß (max. 10 MB pro Datei).',
-            'uploads.*.mimes'    => 'Nur Bilder/Videos sind erlaubt.',
+            'type.required'     => 'Bitte wählen Sie einen Typ.',
+            'type.in'           => 'Ungültiger Typ.',
+            'title.required'    => 'Bitte geben Sie einen Titel ein.',
+            'title.min'         => 'Der Titel ist zu kurz.',
+            'title.max'         => 'Der Titel ist zu lang.',
+            'message.required'  => 'Bitte beschreiben Sie Ihr Anliegen.',
+            'message.min'       => 'Die Nachricht ist zu kurz.',
+            'message.max'       => 'Die Nachricht ist zu lang.',
+            'uploads.*.file'    => 'Ungültige Datei.',
+            'uploads.*.max'     => 'Datei zu groß (max. 10 MB pro Datei).',
+            'uploads.*.mimes'   => 'Nur Bilder/Videos sind erlaubt.',
         ];
     }
 
@@ -52,7 +59,7 @@ class FeedbackWidget extends Component
     {
         $this->validateOnly('uploads.*');
 
-        // Max 5 Dateien insgesamt
+        // Max. 5 Dateien
         if (count($this->uploads) > 5) {
             $this->addError('uploads', 'Maximal 5 Dateien erlaubt.');
             $this->uploads = array_slice($this->uploads, 0, 5);
@@ -62,29 +69,34 @@ class FeedbackWidget extends Component
     public function submit(): void
     {
         $this->submitting = true;
-        $validated = $this->validate();
+        $this->validate();
 
-        // Speichern der Dateien (private Disk)
+        // Dateien speichern (public Disk – anpassen, falls privat gewünscht)
         $stored = [];
         foreach ($this->uploads as $file) {
-            $stored[] = $file->store('feedback/'.now()->format('Y/m/d'), 'public');
+            $stored[] = $file->store('feedback/' . now()->format('Y/m/d'), 'public');
         }
 
-        // Persist Feedback
+        // Feedback persistieren
         Feedback::create([
             'user_id'     => Auth::id(),
             'type'        => $this->type,
+            'title'       => $this->title,
             'message'     => $this->message,
             'url'         => Request::fullUrl() ?: null,
             'user_agent'  => Request::userAgent() ?: null,
             'attachments' => $stored,
+            // Optional: Default-Tags/Status/Priorität hier setzen, falls gewünscht
+            // 'tags'        => ['UI Improvement'],
+            // 'status'      => 'open',
+            // 'priority'    => 'normal',
         ]);
 
-        // Eingaben zurücksetzen (Typ beibehalten)
-        $this->reset(['message', 'uploads']);
+        // Eingaben (außer Typ) zurücksetzen
+        $this->reset(['title', 'message', 'uploads']);
         $this->submitting = false;
 
-        // Browser-Event -> öffnet Erfolgsmodal & schließt Popover (siehe Blade)
+        // Browser-Event für Erfolgsmodal & Popover-Schließen
         $this->dispatch('feedback-sent');
     }
 
