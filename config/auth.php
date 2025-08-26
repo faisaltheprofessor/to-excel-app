@@ -69,7 +69,7 @@ return [
                 'sync_passwords' => false,
                 'sync_attributes' => [
                     'name' => 'givenName',
-                    'email' => 'email',
+                    'email' => 'mail',
                     'username' => 'sAMAccountName',
                 ],
                 'sync_existing' => [
