@@ -16,7 +16,7 @@ SHEET2_NAME = "Strukt. Ablage Behörde"
 ROW_BAND, ROW_TITLE, ROW_CAPTION, ROW_HEADERS = 2, 3, 3, 5
 DATA_START_ROW = 4
 
-# Strip the first N wrapper parents on sheet 2 (these are included in sheet 1)
+# Strip the first N wrapper parents on sheet 2 (these are included on sheet 1)
 SKIP_PARENTS = 3
 
 # Placeholders
@@ -208,7 +208,7 @@ def write_rows(ws, nodes, row, level, last_stack, cols, lineage_names, lineage_a
                 g = ws.cell(row=row, column=j, value=val)
                 g.alignment = LEFT; g.border = BOX
 
-        # RIGHT canonical groups (what Sheet 2 must mirror)
+        # RIGHT canonical groups (Sheet 2 must mirror this base)
         if level >= GROUPS_FROM_LEVEL and name:
             tokens = lineage_names + [norm_token(name)]
             start = min(GROUPS_FROM_LEVEL, len(tokens) - 1)
@@ -278,22 +278,10 @@ def break_inheritance_from_node(node, desc_text):
         return "WAHR"
     return ""
 
-# === THE IMPORTANT PART ===
-# Sheet 2 must use the SAME schema as Sheet 1 RIGHT:
-# ▶ Use the *names* lineage (not appName), and since we already stripped
-#   SKIP_PARENTS, we join ALL remaining tokens.
+# Use the SAME schema base as Sheet 1 RIGHT (use names lineage; wrappers already stripped)
 def build_group_key_from_names(path_names):
     tokens = [norm_token(x) for x in path_names if (x or "").strip()]
     return PREFIX + "_".join(tokens) if tokens else ""
-
-def pokorb_suffix_from_path(path_apps):
-    # For PoKorb label we still want app tokens (to keep Pe_SG2 etc.)
-    if not path_apps:
-        return ""
-    suffix = path_apps[-1]
-    if suffix == "AblgOE" and len(path_apps) >= 2:
-        suffix = path_apps[-2]
-    return suffix
 
 def set_row_top_thick(ws, row, col_start=1, col_end=11):
     for c in range(col_start, col_end + 1):
@@ -323,16 +311,16 @@ def set_group_bottom_thick(ws, row_last, col_start=1, col_end=11):
 def write_group_recursive(ws, node, r, path_names, path_apps, poeings):
     """
     Sheet 2 writer:
-      - Group names in G..K use the *names* lineage (same as Sheet 1 RIGHT).
-      - After stripping wrappers, join ALL remaining tokens.
+      - Column A uses appName as display.
+      - Permission cells G..K use the SAME base key as Sheet 1 RIGHT (names lineage with PREFIX).
+      - For PoKorb creation we collect app-paths at Pe_* nodes.
     """
     name = (node.get("name") or "").strip()
     appn = (node.get("appName") or name).strip()
     kids = node.get("children") or []
     desc = (node.get("description") or "").strip()
 
-    # Column A shows appName (as you currently do)
-    label = appn if appn else (name if name else "(unnamed)")
+    label = appn if appn else (name if name else "(unnamed)")  # appName label
     is_parent = bool(kids)
     parent_raw = path_apps[-1] if path_apps else ""
 
@@ -340,7 +328,7 @@ def write_group_recursive(ws, node, r, path_names, path_apps, poeings):
     parent_display = parent_raw
     typ = "Hierarchieelement" if is_parent else "Aktenablage"
 
-    # === Build the permission base from NAMES (not appName) ===
+    # Permission base from NAMES (SHEET 1 RIGHT schema)
     full_names_path = path_names + [name]
     perm_key = build_group_key_from_names(full_names_path)
 
@@ -354,7 +342,7 @@ def write_group_recursive(ws, node, r, path_names, path_apps, poeings):
         c.border = BOX2
     ws.cell(row=r, column=1).fill = YELLOW
 
-    # G..K — SAME base as sheet 1 right side + suffix
+    # G..K — base + suffix
     gvals = [
         f"{perm_key}-RO@{ORG_NAME};{ADMIN_ACCOUNT}",
         f"{perm_key}@{ORG_NAME};{ADMIN_ACCOUNT}",
@@ -367,7 +355,7 @@ def write_group_recursive(ws, node, r, path_names, path_apps, poeings):
         c.alignment = LEFT
         c.border = BOX2
 
-    # Fonts/borders
+    # Emphasis
     ws.cell(row=r, column=1).font = (BLACKB if is_parent else BLACK)
     for j in range(2, 12):
         ws.cell(row=r, column=j).font = BLACK
@@ -376,11 +364,11 @@ def write_group_recursive(ws, node, r, path_names, path_apps, poeings):
 
     current_row = r
 
-    # Remember for PoKorb if this is Pe_ (use app path)
+    # Remember Pe_* locations for PoKorb creation: store the *app* path (ancestors' app names)
     if is_poeing(name) or is_poeing(appn) or label.lower().startswith("pe_"):
         poeings.append({"path": list(path_apps)})
 
-    # Children
+    # Recurse
     for child in kids:
         current_row += 1
         current_row, _ = write_group_recursive(
@@ -417,7 +405,7 @@ def add_second_sheet(wb: Workbook, tree):
     for col_idx in range(7, 12):
         ws.cell(row=1, column=col_idx).fill = GREEN
 
-    # Work on tree without first 3 wrapper levels (Sheet 1 includes them)
+    # Work on tree without first 3 wrapper levels (sheet 1 includes them)
     working_nodes = strip_prefix_levels(tree, SKIP_PARENTS)
 
     r = 2
@@ -428,15 +416,18 @@ def add_second_sheet(wb: Workbook, tree):
         all_poeings.extend(poe)
         r += 1  # spacer between top-level groups
 
-    # Optional: PoKorb rows (no perms)
+    # === PoKorb rows ===
+    # EXACT rule: PoKorb_<AppNameOfParentOfAblgOE>; parent column = Pe_<AppNameOfParentOfAblgOE>
+    # We collected pe["path"] as the *app* ancestors when we hit a Pe_* node.
+    # Typical pe["path"] ends with "... , 'AblgOE' " so parent is pe["path"][-2].
     for pe in all_poeings:
-        suffix = pokorb_suffix_from_path(pe["path"])
-        label  = f"PoKorb_Pe_{suffix}" if suffix else "PoKorb_Pe"
-        parent = f"Pe_{suffix}"       if suffix else "Pe_"
+        parent_app = pe["path"][-2] if len(pe["path"]) >= 2 else ""   # AppName of parent of AblgOE
+        label  = f"PoKorb_{parent_app}" if parent_app else "PoKorb"
+        parent = f"Pe_{parent_app}"     if parent_app else "Pe"
 
         values = [
             label,
-            f"Postkorb {suffix}" if suffix else "Postkorb",
+            f"Postkorb {parent_app}" if parent_app else "Postkorb",
             parent,
             "Posteingang",
             "",
