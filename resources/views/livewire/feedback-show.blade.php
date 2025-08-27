@@ -138,7 +138,7 @@
         <div class="p-6 space-y-5">
             <flux:heading size="md">Kommentare</flux:heading>
 
-            {{-- new comment with mentions --}}
+            {{-- new comment with mentions + Jira-like shortcuts --}}
             <div
                 x-data="mentionBox({
                     getText:   () => $refs.replyTa.value,
@@ -149,7 +149,6 @@
                     isOpen:    () => $wire.get('mentionOpen'),
                     results:   () => $wire.get('mentionResults'),
                 })"
-                x-on:keydown.escape.prevent.stop="close()"
                 class="space-y-2 relative"
             >
                 <flux:textarea
@@ -157,9 +156,9 @@
                     rows="3"
                     wire:model.defer="reply"
                     placeholder="Antwort schreiben … (mit &#64;Namen erwähnen)"
-                    x-on:keyup="detect($event)"
+                    x-on:input="detect($event)"
+                    x-on:keydown="onKeydown($event)"   {{-- handles Jira tokens before browser inserts key --}}
                     x-on:click="detect($event)"
-                    x-on:keydown.enter.prevent="maybePick($event)"
                 />
                 @error('reply') <div class="text-sm text-red-600">{{ $message }}</div> @enderror
 
@@ -210,17 +209,71 @@
     </flux:card>
 </div>
 
-{{-- Mentions helper (safe; no @js) --}}
+{{-- ===== Helpers: mentionBox + jiraShortcuts ===== --}}
 <script>
+/**
+ * Small helper for inline Jira-like token replacement (used in partial inline boxes too).
+ * Usage: x-data="jiraShortcuts(() => $wire.get('reply'), v => $wire.set('reply', v), 'replyInlineTa')"
+ */
+window.jiraShortcuts = function(getText, setText, refName = 'ta') {
+    const map = new Map([ ['/', '✅'], ['x', '❌'], ['y', '👍'] ]);
+
+    return {
+        onKeydown(e) {
+            if (![' ', 'Enter', 'Tab'].includes(e.key)) return;
+            const replaced = this._replaceBeforeCaret(e.key);
+            if (replaced) e.preventDefault();
+        },
+        _replaceBeforeCaret(triggerKey) {
+            const ta = this.$refs[refName]; if (!ta) return false;
+            const val = ta.value ?? '';
+            const pos = ta.selectionStart ?? 0;
+            const leftRaw = val.slice(0, pos), right = val.slice(pos);
+
+            const wsMatch = leftRaw.match(/[ \t\r\n]+$/);
+            const trailingWS = wsMatch ? wsMatch[0] : '';
+            const left = trailingWS ? leftRaw.slice(0, leftRaw.length - trailingWS.length) : leftRaw;
+
+            const m = left.match(/\(([^\s()]{1,10})\)$/i);
+            if (!m) return false;
+            const token = (m[1] || '').toLowerCase();
+            if (!map.has(token)) return false;
+
+            const emoji = map.get(token);
+            const newLeft = left.slice(0, left.length - m[0].length) + emoji;
+
+            let triggerChar = '';
+            if (triggerKey === ' ') triggerChar = ' ';
+            else if (triggerKey === 'Enter') triggerChar = '\n';
+            else if (triggerKey === 'Tab') triggerChar = '\t';
+
+            const newVal = newLeft + trailingWS + triggerChar + right;
+            setText(newVal);
+
+            const newPos = (newLeft + trailingWS + triggerChar).length;
+            ta.focus(); ta.setSelectionRange(newPos, newPos);
+            return true;
+        }
+    };
+};
+
+/**
+ * Full composer with @mentions + Jira-style tokens.
+ */
 window.mentionBox = function(api) {
     const AT = String.fromCharCode(64); // "@"
+    const jiraMap = new Map([ ['/', '✅'], ['x', '❌'], ['y', '👍'] ]);
+
     return {
         range: null,
-        detect() {
+
+        detect(e) {
             const ta = this.textarea(); if (!ta) return;
             const val = ta.value ?? '';
             const pos = ta.selectionStart ?? 0;
             const prefix = val.slice(0, pos);
+
+            // @mention detection
             const rx = new RegExp(AT + '([\\p{L}\\p{M}\\.\\- ]{1,50})$', 'u');
             const match = prefix.match(rx);
             if (match) {
@@ -233,6 +286,50 @@ window.mentionBox = function(api) {
                 this.range = null; api.setQuery(''); api.close();
             }
         },
+
+        onKeydown(e) {
+            if (![' ', 'Enter', 'Tab'].includes(e.key)) return;
+            const replaced = this.replaceJiraTokenBeforeCaret(e.key);
+            if (replaced) e.preventDefault();
+        },
+
+        // Jira-like token just before caret: (y) (/) (x) → 👍 ✅ ❌
+        replaceJiraTokenBeforeCaret(triggerKey) {
+            const ta = this.textarea(); if (!ta) return false;
+
+            const val = ta.value ?? '';
+            const pos = ta.selectionStart ?? 0;
+            const leftRaw = val.slice(0, pos);
+            const right = val.slice(pos);
+
+            const wsMatch = leftRaw.match(/[ \t\r\n]+$/);
+            const trailingWS = wsMatch ? wsMatch[0] : '';
+            const left = trailingWS ? leftRaw.slice(0, leftRaw.length - trailingWS.length) : leftRaw;
+
+            const m = left.match(/\(([^\s()]{1,10})\)$/i);
+            if (!m) return false;
+
+            const token = (m[1] || '').toLowerCase();
+            if (!jiraMap.has(token)) return false;
+
+            const emoji = jiraMap.get(token);
+            const newLeft = left.slice(0, left.length - m[0].length) + emoji;
+
+            let triggerChar = '';
+            if (triggerKey === ' ') triggerChar = ' ';
+            else if (triggerKey === 'Enter') triggerChar = '\n';
+            else if (triggerKey === 'Tab') triggerChar = '\t';
+
+            const newVal = newLeft + trailingWS + triggerChar + right;
+            api.setText(newVal);
+
+            const newPos = (newLeft + trailingWS + triggerChar).length;
+            this.setCaret(ta, newPos);
+
+            api.setQuery(''); api.close(); this.range = null;
+            return true;
+        },
+
         maybePick(e) {
             if (this.range && api.isOpen && api.isOpen()) {
                 e.preventDefault();
@@ -240,6 +337,7 @@ window.mentionBox = function(api) {
                 if (list.length > 0) this.insert(AT + list[0].name + ' ');
             }
         },
+
         insert(text) {
             if (!this.range) return;
             const ta = this.textarea(); const val = ta.value ?? '';
@@ -248,7 +346,8 @@ window.mentionBox = function(api) {
             const newPos = this.range.start + text.length;
             this.setCaret(ta, newPos); api.setQuery(''); api.close(); this.range = null;
         },
-        setCaret(el, pos){ el.focus(); el.setSelectionRange(pos,pos); },
+
+        setCaret(el, pos){ el.focus(); el.setSelectionRange(pos, pos); },
         textarea(){ return this.$refs.replyTa; },
         close(){ api.setQuery(''); api.close(); this.range = null; }
     }

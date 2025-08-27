@@ -32,13 +32,20 @@
         </div>
     @endif
 
-    {{-- inline reply box (no Alpine/JS) --}}
+    {{-- inline reply box (Alpine x-data just for Jira shortcuts) --}}
     @if($replyTo === $comment->id)
-        <div class="mt-3">
+        <div class="mt-3"
+             x-data="jiraShortcuts(
+                 () => $wire.get('reply'),
+                 (v) => $wire.set('reply', v),
+                 'replyInlineTa'
+             )">
             <flux:textarea
+                x-ref="replyInlineTa"
                 rows="2"
                 wire:model.defer="reply"
-                placeholder="Antwort schreiben … (mit &#64;Name erwähnen – einfacher Text)"
+                placeholder="Antwort schreiben … (mit &#64;Name erwähnen"
+                x-on:keydown="onKeydown($event)"  {{-- Jira-style (y) (/) (x) --}}
             />
             @error('reply') <div class="text-sm text-red-600">{{ $message }}</div> @enderror
             <div class="mt-2 flex items-center gap-2">
