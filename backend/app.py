@@ -153,7 +153,7 @@ def create_sheet(last_name_col:int, perm1_cols:int, perm2_cols:int, max_depth:in
     }
 
 def draw_connectors(ws, row, level, last_stack, base_col=1):
-    # no ASCII tree art
+    # no ASCII tree art in the sheet
     return
 
 def style_cell_like_node(cell, label:str, is_container:bool):
@@ -308,11 +308,18 @@ def set_row_bottom_thick(ws, row, col_start=1, col_end=11):
 def set_group_bottom_thick(ws, row_last, col_start=1, col_end=11):
     set_row_bottom_thick(ws, row_last, col_start, col_end)
 
+def make_addr(group_key: str, suffix: str = "") -> str:
+    """Return '<group[-suffix]>@ORG_NAME' (no admin; we'll append admin ONCE later)."""
+    key = f"{group_key}-{suffix}" if suffix else group_key
+    return f"{key}@{ORG_NAME}"
+
 def write_group_recursive(ws, node, r, path_names, path_apps, poeings):
     """
     Sheet 2 writer:
       - Column A uses appName as display.
       - Permission cells G..K use the SAME base key as Sheet 1 RIGHT (names lineage with PREFIX).
+      - LA column lists LA groups for ALL ancestors up to current *once*, and the admin account
+        is appended only ONCE at the very end of the semicolon-joined string in each permission cell.
       - For PoKorb creation we collect app-paths at Pe_* nodes.
     """
     name = (node.get("name") or "").strip()
@@ -332,6 +339,9 @@ def write_group_recursive(ws, node, r, path_names, path_apps, poeings):
     full_names_path = path_names + [name]
     perm_key = build_group_key_from_names(full_names_path)
 
+    # Build ancestor keys (for LA)
+    ancestor_keys = [build_group_key_from_names(full_names_path[:i]) for i in range(1, len(full_names_path)+1)]
+
     # A..F
     values = [display_a, desc, parent_display, typ,
               break_inheritance_from_node(node, desc),
@@ -342,16 +352,18 @@ def write_group_recursive(ws, node, r, path_names, path_apps, poeings):
         c.border = BOX2
     ws.cell(row=r, column=1).fill = YELLOW
 
-    # G..K — base + suffix
-    gvals = [
-        f"{perm_key}-RO@{ORG_NAME};{ADMIN_ACCOUNT}",
-        f"{perm_key}@{ORG_NAME};{ADMIN_ACCOUNT}",
-        f"{perm_key}-FA@{ORG_NAME};{ADMIN_ACCOUNT}",
-        f"{perm_key}-LA@{ORG_NAME};{ADMIN_ACCOUNT}",
-        f"{perm_key}-AA@{ORG_NAME};{ADMIN_ACCOUNT}",
-    ]
-    for j, val in enumerate(gvals, start=7):
-        c = ws.cell(row=r, column=j, value=val)
+    # ---- Permissions G..K (append ADMIN_ACCOUNT only ONCE at the end) ----
+    g_list = [make_addr(perm_key, "RO")]
+    h_list = [make_addr(perm_key, "")]
+    i_list = [make_addr(perm_key, "FA")]
+    j_list = [make_addr(k, "LA") for k in ancestor_keys]   # all ancestors for Löschadministration
+    k_list = [make_addr(perm_key, "AA")]
+
+    cells_lists = [g_list, h_list, i_list, j_list, k_list]
+    for offset, items in enumerate(cells_lists, start=7):
+        # join addresses and add admin ONCE at the end
+        cell_val = ";".join(items) + f";{ADMIN_ACCOUNT}"
+        c = ws.cell(row=r, column=offset, value=cell_val)
         c.alignment = LEFT
         c.border = BOX2
 
@@ -418,8 +430,7 @@ def add_second_sheet(wb: Workbook, tree):
 
     # === PoKorb rows ===
     # EXACT rule: PoKorb_<AppNameOfParentOfAblgOE>; parent column = Pe_<AppNameOfParentOfAblgOE>
-    # We collected pe["path"] as the *app* ancestors when we hit a Pe_* node.
-    # Typical pe["path"] ends with "... , 'AblgOE' " so parent is pe["path"][-2].
+    # Col G..K for PoKorb remain empty (no perms) — requirement unchanged.
     for pe in all_poeings:
         parent_app = pe["path"][-2] if len(pe["path"]) >= 2 else ""   # AppName of parent of AblgOE
         label  = f"PoKorb_{parent_app}" if parent_app else "PoKorb"
