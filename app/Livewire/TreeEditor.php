@@ -79,39 +79,34 @@ class TreeEditor extends Component
         $this->dispatch('autosaved');
     }
 
-public function updatedTitle(): void
-{
-    // Normalize: trim + collapse spaces + replace umlauts
-    $candidate = $this->translitUmlauts(
-        $this->normalizeTitle((string)$this->title)
-    );
+    public function updatedTitle(): void
+    {
+        $candidate = $this->translitUmlauts($this->normalizeTitle((string)$this->title));
 
-    // Empty / Windows-style rules
-    if ($candidate === '') {
-        $this->addError('title', 'Name darf nicht leer sein.');
-        return;
+        if ($candidate === '') {
+            $this->addError('title', 'Name darf nicht leer sein.');
+            return;
+        }
+        if ($reason = $this->invalidNameReason($candidate)) {
+            $this->addError('title', $reason);
+            return;
+        }
+
+        $exists = TreeModel::query()
+            ->whereRaw('LOWER(title) = ?', [mb_strtolower($candidate)])
+            ->where('id', '!=', $this->treeId)
+            ->exists();
+
+        if ($exists) {
+            $this->addError('title', 'Name ist bereits vergeben (Groß-/Kleinschreibung unbeachtet).');
+            return;
+        }
+
+        $this->resetErrorBag('title');
+        $this->title = $candidate;
+        $this->persist();
     }
-    if ($reason = $this->invalidNameReason($candidate)) {
-        $this->addError('title', $reason);
-        return;
-    }
 
-    // Case-insensitive uniqueness (exclude current record)
-    $exists = TreeModel::query()
-        ->whereRaw('LOWER(title) = ?', [mb_strtolower($candidate)])
-        ->where('id', '!=', $this->treeId)
-        ->exists();
-
-    if ($exists) {
-        $this->addError('title', 'Name ist bereits vergeben (Groß-/Kleinschreibung unbeachtet).');
-        return;
-    }
-
-    // Passed: clear errors, persist
-    $this->resetErrorBag('title');
-    $this->title = $candidate;
-    $this->persist();
-}
     public function updatedNewNodeName(): void { $this->resetValidation(); }
     public function updatedNewAppName(): void  { $this->resetValidation(); }
     public function updatedEditValue(): void   { $this->resetValidation(); }
@@ -133,9 +128,12 @@ public function updatedTitle(): void
             return;
         }
 
+        // Rule: any direct child "main unit" keeps its own name (e.g., test1), not Parent_te
+        $defaultApp = $nameInput;
+
         $newNode = [
             'name'           => $nameInput,
-            'appName'        => ($appInput !== '') ? $appInput : $nameInput,
+            'appName'        => ($appInput !== '') ? $appInput : $defaultApp,
             'appNameManual'  => ($appInput !== ''),
             'children'       => [],
             'deletable'      => true,
@@ -167,7 +165,6 @@ public function updatedTitle(): void
         $this->sanitizeDeletionFlags($this->tree);
         $this->persist();
 
-        // Re-focus the "Neuer Knotenname" input
         $this->dispatch('focus-newnode');
     }
 
@@ -226,28 +223,21 @@ public function updatedTitle(): void
             return;
         }
 
-        // capture BEFORE change to know if appName mirrored name
-        $before  = $this->getNodeAtPath($this->tree, $this->editNodePath);
-        $oldName = $before['name'] ?? null;
-        $oldApp  = $before['appName'] ?? null;
+        $before    = $this->getNodeAtPath($this->tree, $this->editNodePath);
         $wasManual = (bool)($before['appNameManual'] ?? false);
 
         $fields = [$this->editField => $val];
 
-        if ($this->editField === 'name') {
-            // keep appName in sync only if it was auto (oldApp==oldName and not manual)
-            if ($oldName !== null && $oldApp === $oldName && !$wasManual) {
-                $fields['appName'] = $val;
-                $fields['appNameManual'] = false;
-            }
+        if ($this->editField === 'name' && !$wasManual) {
+            // Let refreshAppNames recompute; set immediate to name to avoid flicker
+            $fields['appName'] = $val;
+            $fields['appNameManual'] = false;
         } elseif ($this->editField === 'appName') {
-            // mark as manual so refreshAppNames won't overwrite it
             $fields['appNameManual'] = true;
         }
 
         $this->setNodeFieldsByPath($this->tree, $this->editNodePath, $fields);
 
-        // Recompute descendants’ appNames based on the rule (won’t touch manual ones)
         $this->refreshAppNames($this->tree, null, null);
 
         $this->editNodePath = null;
@@ -427,7 +417,6 @@ public function updatedTitle(): void
         return $n['name'] ?? null;
     }
 
-    /*** set fields using a by-reference pointer down the path ***/
     protected function setNodeFieldsByPath(&$nodes, $path, $fields)
     {
         if ($path === null || !is_array($path)) return;
@@ -561,7 +550,6 @@ public function updatedTitle(): void
     {
         if (!$this->pathExists($this->tree, $fromPath) || !$this->pathExists($this->tree, $toPath)) return;
 
-        // disallow moving onto itself or into its own subtree
         if ($fromPath === $toPath || $this->isAncestorPath($fromPath, $toPath)) return;
 
         $moved = $this->extractNodeAtPath($this->tree, $fromPath);
@@ -600,7 +588,6 @@ public function updatedTitle(): void
         return $this->isAncestorPath(array_slice($a, 0, -1), $b) && count($a) - 1 === count(array_slice($b, 0, -1));
     }
 
-    /** return true if A is ancestor of B (paths) */
     protected function isAncestorPath(array $a, array $b): bool
     {
         if (count($a) >= count($b)) return false;
@@ -610,7 +597,6 @@ public function updatedTitle(): void
         return true;
     }
 
-    /** remove and return node at path */
     protected function extractNodeAtPath(&$nodes, $path)
     {
         $index = array_shift($path);
@@ -625,7 +611,6 @@ public function updatedTitle(): void
         return $this->extractNodeAtPath($nodes[$index]['children'], $path);
     }
 
-    /** append child at path (assumes path exists) */
     protected function appendChildAtPath(&$nodes, $path, $newNode): void
     {
         $index = array_shift($path);
@@ -644,7 +629,6 @@ public function updatedTitle(): void
         $this->appendChildAtPath($nodes[$index]['children'], $path, $newNode);
     }
 
-    /** insert as sibling under parent at index */
     protected function insertSiblingAt(&$nodes, $parentPath, int $insertIndex, $newNode): void
     {
         $ptr =& $nodes;
@@ -657,7 +641,6 @@ public function updatedTitle(): void
         array_splice($ptr, $insertIndex, 0, [$newNode]);
     }
 
-    /** last index of children at path (or -1) */
     protected function lastChildIndexAtPath($nodes, $path): int
     {
         $n = $this->getNodeAtPath($nodes, $path);
@@ -666,7 +649,6 @@ public function updatedTitle(): void
         return is_array($kids) ? max(count($kids) - 1, -1) : -1;
     }
 
-    /** Pfad -> Namenliste / String */
     protected function getPathNames(array $path): array
     {
         $names = [];
@@ -700,28 +682,19 @@ public function updatedTitle(): void
     // ================== VALIDATION HELPERS ==================
     protected function invalidNameReason(string $name): ?string
     {
-        // Windows-like rules for filenames/folders (component)
-        // 1) length
         if (mb_strlen($name) > 255) {
             return 'Name darf höchstens 255 Zeichen lang sein.';
         }
-        // 2) disallow only "." or ".."
         if ($name === '.' || $name === '..') {
             return 'Name darf nicht "." oder ".." sein.';
         }
-        // 3) disallow invalid characters: < > : " / \ | ? * and control chars 0x00-0x1F
         if (preg_match('/[<>:"\/\\\\|?*]/u', $name) || preg_match('/[\x00-\x1F]/u', $name)) {
             return 'Ungültige Zeichen: < > : " / \\ | ? * oder Steuerzeichen sind nicht erlaubt.';
         }
-        // 4) no trailing space or dot
         if (preg_match('/[ \.]$/u', $name)) {
             return 'Name darf nicht mit einem Punkt oder Leerzeichen enden.';
         }
-        // 5) reserved device names (case-insensitive), optionally with extension
-        $base = $name;
-        // windows treats trailing dots/spaces as equivalent; we already block them,
-        // but normalize anyway for device-name check
-        $norm = rtrim($base, " .");
+        $norm = rtrim($name, " .");
         $upper = mb_strtoupper($norm);
         $reserved = [
             'CON','PRN','AUX','NUL',
@@ -729,9 +702,8 @@ public function updatedTitle(): void
             'LPT1','LPT2','LPT3','LPT4','LPT5','LPT6','LPT7','LPT8','LPT9',
         ];
         if (in_array($upper, $reserved, true)) {
-            return 'Name ist unter Windows reserviert (z. B. CON, PRN, AUX, NUL, COM1–COM9, LPT1–LPT9).';
+            return 'Name ist unter Windows reserviert (z. B. CON, PRN, AUX, NUL, COM1–COM9, LPT1–LPT9).';
         }
-        // Existing custom rule: max three hyphens
         if (substr_count($name, '-') > 3) {
             return 'Name darf höchstens drei Bindestriche (-) enthalten.';
         }
@@ -739,13 +711,21 @@ public function updatedTitle(): void
     }
 
     // ================== APPNAME RULES ==================
+    /** Only these "structural" nodes get a Parent_* prefix; others keep their own name */
+    protected function isStructural(string $name): bool
+    {
+        return in_array($name, ['Ltg','Allg','AblgOE','PoEing','SB'], true);
+    }
+
     protected function abbr(string $name): string
     {
         $map = [
             'Ltg'    => 'Ltg',
             'Allg'   => 'Allg',
-            'PoEing' => 'PE',
-            'SB'     => 'SB',
+            'AblgOE' => 'Ab',   // Parent_Ab
+            'PoEing' => 'Pe',   // Parent_Pe
+            'PoEIn'  => 'Pe',
+            'SB'     => 'Sb',   // Parent_Sb
         ];
         if (isset($map[$name])) return $map[$name];
 
@@ -762,7 +742,7 @@ public function updatedTitle(): void
             return $childName;
         }
         if ($childName === 'AblgOE') {
-            return 'Ab_' . $effectiveParent;
+            return 'Ab_' . $effectiveParent; // legacy special, if ever needed
         }
         return $effectiveParent . '_' . $this->abbr($childName);
     }
@@ -773,53 +753,38 @@ public function updatedTitle(): void
     }
 
     /**
-     * Recompute child appNames; do not overwrite nodes explicitly edited (appNameManual=true).
-     * Also allow auto-propagation for nodes that keep appName==name and not manual.
+     * Recompute appNames with the rule:
+     * - Structural nodes (Ltg/Allg/AblgOE/PoEing/SB) => Parent_Abbr(name) using effective parent
+     * - All other nodes (like "test1", "Fb1", "DeptX", …) => keep own name
+     * - Respect appNameManual
      */
     protected function refreshAppNames(array &$nodes, ?string $parentName, ?string $grandparentName): void
     {
         foreach ($nodes as &$n) {
             $name = $n['name'] ?? '';
 
-            if (!isset($n['appName']) || $n['appName'] === '') {
-                $n['appName'] = $name;
-            }
-            if (!isset($n['appNameManual'])) {
-                $n['appNameManual'] = false;
-            }
+            if (!isset($n['appName']))       $n['appName'] = $name;
+            if (!isset($n['appNameManual'])) $n['appNameManual'] = false;
 
-            // determine effective parent for THIS node's children
-            $effectiveParent = $parentName;
-            if ($parentName === 'AblgOE') {
-                $effectiveParent = $grandparentName; // skip AblgOE
-            }
-            $nextEffectiveParent = $this->nextEffectiveParent($name, $effectiveParent);
+            $effectiveParent = $parentName === 'AblgOE' ? $grandparentName : $parentName;
 
-            // apply scheme to children
-            if (!empty($n['children']) && is_array($n['children'])) {
-                foreach ($n['children'] as &$child) {
-                    $childName = $child['name'] ?? '';
-                    $manual = isset($child['appNameManual']) && $child['appNameManual'] === true;
-
-                    // Only auto-compute if NOT manual
-                    if (!$manual) {
-                        // preserve "keep = name" behavior
-                        $keep = isset($child['appName']) && $child['appName'] === $childName;
-                        if (!$keep) {
-                            $child['appName'] = $this->composeAppName($nextEffectiveParent, $childName);
-                        }
-                    }
-                    if (!isset($child['appNameManual'])) {
-                        $child['appNameManual'] = $manual;
-                    }
+            if (!$n['appNameManual']) {
+                if ($this->isStructural($name)) {
+                    $n['appName'] = ($effectiveParent === null || $effectiveParent === '')
+                        ? $name
+                        : $this->composeAppName($effectiveParent, $name);
+                } else {
+                    $n['appName'] = $name; // main branches keep own name always
                 }
+            }
+
+            if (!empty($n['children']) && is_array($n['children'])) {
                 $this->refreshAppNames($n['children'], $name, $effectiveParent);
             }
         }
     }
 
     // ================== INPUT NORMALIZATION ==================
-    /** Replace German umlauts with ASCII equivalents in any user-entered field */
     protected function translitUmlauts(string $s): string
     {
         $map = [
@@ -831,8 +796,8 @@ public function updatedTitle(): void
     }
 
     protected function normalizeTitle(string $s): string
-{
-    $s = preg_replace('/\s+/u', ' ', $s ?? '');
-    return trim($s);
-}
+    {
+        $s = preg_replace('/\s+/u', ' ', $s ?? '');
+        return trim($s);
+    }
 }

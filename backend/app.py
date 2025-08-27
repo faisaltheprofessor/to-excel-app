@@ -11,7 +11,7 @@ app = FastAPI()
 PREFIX = "203_"
 GROUPS_FROM_LEVEL = 3
 SHEET_NAME  = "GE_Gruppenstruktur"
-SHEET2_NAME = "Strukt. ABlage Behörde"
+SHEET2_NAME = "Strukt. Ablage Behörde"  # fixed name
 
 ROW_BAND, ROW_TITLE, ROW_CAPTION, ROW_HEADERS = 2, 3, 3, 5
 DATA_START_ROW = 4
@@ -73,8 +73,9 @@ FORCE_BLUE = {"Org", "Org Name"}
 
 def norm_token(s: str) -> str:
     s = (s or "").strip()
-    s = re.sub(r"[^\w]+","_",s)
-    s = re.sub(r"_+","_",s).strip("_")
+    # Keep dashes: allow letters, digits, underscore AND dash
+    s = re.sub(r"[^\w\-]+", "_", s)
+    s = re.sub(r"_+", "_", s).strip("_")
     return s
 
 def tree_max_depth(nodes, level=0):
@@ -154,18 +155,9 @@ def create_sheet(last_name_col:int, perm1_cols:int, perm2_cols:int, max_depth:in
         "tree_base": tree_base, "tree_end": tree_end, "max_depth": max_depth
     }
 
+# NO-OP: remove all tree connector characters in the output
 def draw_connectors(ws, row, level, last_stack, base_col=1):
-    if level <= 0:
-        return
-    for depth in range(1, level+1):
-        col = base_col + depth - 1
-        if depth == level:
-            ch = "└" if last_stack[depth-1] else "├"
-        else:
-            ch = "│" if not last_stack[depth-1] else ""
-        if ch:
-            cc = ws.cell(row=row, column=col, value=ch)
-            cc.font = GRAY; cc.alignment = LEFT
+    return
 
 def style_cell_like_node(cell, label:str, is_container:bool):
     cell.alignment = LEFT; cell.border = BOX
@@ -200,6 +192,7 @@ def write_rows(ws, nodes, row, level, last_stack, cols, lineage_names, lineage_a
         if is_ablg(appn) or is_ablg(name):
             row += 1
 
+        # connectors removed
         draw_connectors(ws, row, level, last_stack+[is_last], base_col=1)
         nc = ws.cell(row=row, column=name_col, value=name if name else "(unnamed)")
         style_name_cell(nc, name, bool(children))
@@ -230,6 +223,7 @@ def write_rows(ws, nodes, row, level, last_stack, cols, lineage_names, lineage_a
         fc = ws.cell(row=row, column=cols["flat_col"], value=flat_label)
         style_cell_like_node(fc, flat_label, bool(children))
 
+        # connectors removed in tree view too
         draw_connectors(ws, row, level, last_stack+[is_last], base_col=cols["tree_base"])
         r_name_col = cols["tree_base"] + level
         tv_label = appn if appn else (name if name else "(unnamed)")
