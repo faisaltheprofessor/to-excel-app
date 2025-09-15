@@ -105,7 +105,7 @@
 
                     <div class="flex flex-col gap-2 p-2 min-h-[100px]">
                         @foreach ($col['cards'] as $card)
-                            {{-- CARD: old layout (title + snippet + chips row) --}}
+                            {{-- CARD: title + snippet + chips row --}}
                             <div class="rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 cursor-pointer hover:shadow transition"
                                  draggable="true"
                                  @dragstart="$event.dataTransfer.setData('ticket-id', '{{ $card['id'] }}')"
@@ -156,9 +156,9 @@
                         @endforeach
                     </div>
 
-                    <div class="px-2 py-2">
-                        <flux:button variant="subtle" icon="plus" size="sm" class="w-full justify-start!">Neues Ticket</flux:button>
-                    </div>
+{{--                    <div class="px-2 py-2">--}}
+{{--                        <flux:button variant="subtle" icon="plus" size="sm" class="w-full justify-start!">Neues Ticket</flux:button>--}}
+{{--                    </div>--}}
                 </div>
             @endforeach
         </div>
@@ -192,6 +192,94 @@
 </div>
 
 <script>
-    document.addEventListener('alpine:init', () => {
-    });
+    /**
+     * Global Alpine helpers so nested Livewire children (feedback-show) can use them.
+     * Defined once, guarded.
+     */
+    if (!window.__composeHelpersInit) {
+        window.__composeHelpersInit = true;
+
+        window.composeBox = function(api) {
+            const jiraMap = new Map([ ['/', '✅'], ['x', '❌'], ['y', '👍'] ]);
+
+            return {
+                range: null,
+
+                textarea(){ return this.$refs.replyTa; },
+                setCaret(el, pos){ try { el?.focus(); el?.setSelectionRange(pos, pos); } catch(e) {} },
+
+                detect(){
+                    const ta = this.textarea(); if (!ta) return;
+                    const v  = ta.value ?? '';
+                    const p  = ta.selectionStart ?? 0;
+                    const pre = v.slice(0, p);
+
+                    const m = pre.match(new RegExp('@([\\p{L}\\p{M}\\.\\- ]{1,50})$','u'));
+                    if (m) {
+                        const q = (m[1] || '').trim();
+                        this.range = { start: p - m[0].length, end: p };
+                        api.setQuery(q);
+                        if (q.length > 0) api.open();
+                    } else {
+                        this.range = null; api.setQuery(''); api.close();
+                    }
+                },
+
+                insert(text){
+                    if (!this.range) return;
+                    const ta = this.textarea(); if (!ta) return;
+                    const v = ta.value ?? '';
+                    const nv = v.slice(0, this.range.start) + text + v.slice(this.range.end);
+                    ta.value = nv; api.setText(nv);
+                    const np = this.range.start + text.length;
+                    this.setCaret(ta, np);
+                    api.setQuery(''); api.close(); this.range = null;
+                },
+
+                replaceJiraToken(triggerKey){
+                    const ta = this.textarea(); if (!ta) return false;
+                    const val = ta.value ?? '';
+                    const pos = ta.selectionStart ?? 0;
+                    const leftRaw = val.slice(0, pos);
+                    const right   = val.slice(pos);
+
+                    const ws = leftRaw.match(/[ \t\r\n]+$/);
+                    const trailing = ws ? ws[0] : '';
+                    const left = trailing ? leftRaw.slice(0, leftRaw.length - trailing.length) : leftRaw;
+
+                    const m = left.match(/\(([^\s()]{1,10})\)$/i);
+                    if (!m) return false;
+
+                    const token = (m[1] || '').toLowerCase();
+                    const emoji = ({'/':'✅','x':'❌','y':'👍'})[token];
+                    if (!emoji) return false;
+
+                    const newLeft = left.slice(0, left.length - m[0].length) + emoji;
+
+                    let trigger = '';
+                    if (triggerKey === ' ') trigger = ' ';
+                    else if (triggerKey === 'Enter') trigger = '\n';
+                    else if (triggerKey === 'Tab') trigger = '\t';
+
+                    const newVal = newLeft + trailing + trigger + right;
+                    api.setText(newVal);
+                    const newPos = (newLeft + trailing + trigger).length;
+                    this.setCaret(ta, newPos);
+
+                    this.range = null; api.setQuery(''); api.close();
+                    return true;
+                },
+
+                onKeydown(e){
+                    if ([' ', 'Enter', 'Tab'].includes(e.key)) {
+                        if (this.replaceJiraToken(e.key)) { e.preventDefault(); return; }
+                    }
+                    queueMicrotask(() => this.detect());
+                }
+            };
+        };
+
+        // alias for any older x-data="mentionBox(...)"
+        window.mentionBox = function(api){ return window.composeBox(api); };
+    }
 </script>

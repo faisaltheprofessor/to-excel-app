@@ -196,11 +196,13 @@ class FeedbackShow extends Component
         }
 
         $this->mentionResults = User::query()
-            ->where('name', 'like', $q . '%')
+            ->where('name', 'like', $q.'%')
             ->orderBy('name')
             ->limit(8)
-            ->get(['id', 'name'])
-            ->map(fn($u) => ['id' => $u->id, 'name' => $u->name])->all();
+            ->get(['id','name','email'])   // <- add email
+            ->map(fn($u)=>['id'=>$u->id,'name'=>$u->name,'email'=>$u->email])
+            ->all();
+
 
         $this->mentionOpen = !empty($this->mentionResults);
     }

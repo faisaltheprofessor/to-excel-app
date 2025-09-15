@@ -62,7 +62,7 @@
             <div class="flex flex-wrap items-center gap-2 text-sm">
                 <span class="px-2 py-0.5 rounded bg-zinc-100 dark:bg-zinc-700">
                     @php $t = $feedback->type; @endphp
-                    {{ $t==='bug' ? 'Fehler' : (($t==='feature' || $t==='suggestion') ? 'Vorschlag' : (($t==='feedback' || $t==='question') ? 'Feedback' : ucfirst($t))) }}
+                    {{ $t==='bug' ? 'Bug' : (($t==='feature' || $t==='suggestion') ? 'Feature' : (($t==='feedback' || $t==='question') ? 'Feedback' : ucfirst($t))) }}
                 </span>
                 <span class="px-2 py-0.5 rounded bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-200">
                     {{ $statusDe[$status] ?? ucfirst($status) }}
@@ -80,7 +80,7 @@
                 <span class="text-zinc-500">{{ $feedback->created_at->format('d.m.Y H:i') }}</span>
             </div>
 
-            {{-- Quick edit bar (NO forms) --}}
+            {{-- Quick edit bar --}}
             <div class="flex flex-wrap items-center gap-3 rounded-xl bg-zinc-50 dark:bg-zinc-900/40 p-3">
                 {{-- Status --}}
                 <div class="flex items-center gap-2">
@@ -136,7 +136,7 @@
 
                 <div class="flex-1"></div>
 
-                {{-- Aktualisieren: appears immediately when any select is dirty --}}
+                {{-- Aktualisieren --}}
                 <div
                     wire:dirty.class.remove="hidden"
                     wire:target="status,priority,assigneeId"
@@ -148,8 +148,8 @@
                             wire:dirty.remove.attr="disabled"
                             wire:dirty.class.remove="opacity-50 cursor-not-allowed"
                             class="text-xs px-3 py-1.5 rounded-md border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900
-               hover:bg-zinc-100 dark:hover:bg-zinc-800 transition
-               opacity-50 cursor-not-allowed"
+                                   hover:bg-zinc-100 dark:hover:bg-zinc-800 transition
+                                   opacity-50 cursor-not-allowed"
                             disabled
                             title="Aktualisieren">
                         Aktualisieren
@@ -258,7 +258,7 @@
         <div class="p-6 space-y-5">
             <h3 class="text-md font-semibold">Kommentare</h3>
 
-            {{-- Composer (mentions + Jira tokens) --}}
+            {{-- Composer --}}
             <div class="{{ $canInteract ? '' : 'opacity-60 pointer-events-none' }}"
                  x-data="composeBox({
                     getText:   () => $refs.replyTa?.value ?? '',
@@ -275,14 +275,14 @@
                           placeholder="{{ $canInteract ? 'Antwort schreiben … (mit @Namen erwähnen)' : 'Geschlossen – keine Kommentare möglich' }}"
                           class="w-full rounded-md border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 p-2"
                           {{ $canInteract ? '' : 'disabled' }}
-                          x-on:input="detectMentions()"
-                          x-on:click="detectMentions()"
-                          x-on:keydown="onKeydown($event)"></textarea>
+                          x-on:input="$data.detect()"
+                          x-on:click="$data.detect()"
+                          x-on:keydown="$data.onKeydown($event)"></textarea>
 
                 @error('reply') <div class="text-sm text-red-600">{{ $message }}</div> @enderror
 
                 {{-- Mentions dropdown --}}
-                <div class="absolute z-50 mt-1 w-72 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 shadow"
+                <div class="absolute z-50 mt-1 w-80 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 shadow"
                      x-show="$wire.mentionOpen" x-transition x-on:click.outside="$wire.call('closeMentions')">
                     <div class="px-3 py-2 text-xs text-zinc-500 border-b border-zinc-100 dark:border-zinc-700">
                         Personen erwähnen
@@ -296,9 +296,14 @@
                                 <li>
                                     <button type="button"
                                             class="w-full text-left px-3 py-2 hover:bg-zinc-50 dark:hover:bg-zinc-700"
-                                            data-name="{{ e($u['name']) }}"
-                                            x-on:click="insert('@' + $el.dataset.name + ' ')">
-                                        <span>@{{ $u['name'] }}</span>
+                                            data-name="{{ $u['name'] }}"
+                                            x-on:click="$data.insert('@' + $el.dataset.name + ' ')">
+                                        <div class="flex flex-col">
+                                            <span>{{ '@'.$u['name'] }}</span>
+                                            @if(!empty($u['email'] ?? null))
+                                                <small class="text-[11px] text-zinc-500">{{ $u['email'] }}</small>
+                                            @endif
+                                        </div>
                                     </button>
                                 </li>
                             @endforeach
@@ -328,21 +333,16 @@
         </div>
     </div>
 
-    {{-- ===== Flux Modals (no Blade directives inside) ===== --}}
+    {{-- ===== Flux Modals ===== --}}
     <flux:modal wire:model.self="showHistoryModal" class="md:w-96">
         <div class="space-y-4 p-4"
-             x-data="{ t: '', html: '' }"
-             x-init="
-                $watch(() => $wire.historyTitle, v => t = v);
-                $watch(() => $wire.historyHtml,  v => html = v);
-                t = $wire.historyTitle; html = $wire.historyHtml;
-             ">
-            <div><h3 class="text-base font-semibold" x-text="t"></h3></div>
+             x-data="{ t: $wire.historyTitle, html: $wire.historyHtml }"
+             x-init="$watch(() => $wire.historyTitle, v => t = v); $watch(() => $wire.historyHtml, v => html = v);">
+            <h3 class="text-base font-semibold" x-text="t"></h3>
             <div class="text-sm space-y-2" x-html="html"></div>
-            <div class="flex">
-                <div class="flex-1"></div>
+            <div class="flex justify-end">
                 <button type="button"
-                        class="text-xs px-3 py-1.5 rounded-md border border-zinc-300 dark:border-zinc-700 hover:bg-zinc-100 dark:hover:bg-zinc-800 cursor-pointer"
+                        class="text-xs px-3 py-1.5 rounded-md border hover:bg-zinc-100 dark:hover:bg-zinc-800 cursor-pointer"
                         wire:click="closeHistory">Schließen</button>
             </div>
         </div>
@@ -350,16 +350,13 @@
 
     <flux:modal wire:model.self="showCloseModal" class="md:w-96" :dismissible="false">
         <div class="space-y-6 p-4">
-            <div>
-                <h3 class="text-base font-semibold">Ticket abschließen?</h3>
-                <p class="mt-1 text-sm text-zinc-600 dark:text-zinc-300">
-                    Wenn der Status auf <strong>Abgeschlossen</strong> gesetzt wird, sind weitere Änderungen, Kommentare und Reaktionen nicht mehr möglich.
-                </p>
-            </div>
-            <div class="flex">
-                <div class="flex-1"></div>
+            <h3 class="text-base font-semibold">Ticket abschließen?</h3>
+            <p class="mt-1 text-sm text-zinc-600 dark:text-zinc-300">
+                Wenn der Status auf <strong>Abgeschlossen</strong> gesetzt wird, sind weitere Änderungen, Kommentare und Reaktionen nicht mehr möglich.
+            </p>
+            <div class="flex justify-end gap-2">
                 <button type="button"
-                        class="text-xs px-3 py-1.5 rounded-md border border-zinc-300 dark:border-zinc-700 mr-2 hover:bg-zinc-100 dark:hover:bg-zinc-800 cursor-pointer"
+                        class="text-xs px-3 py-1.5 rounded-md border hover:bg-zinc-100 dark:hover:bg-zinc-800 cursor-pointer"
                         wire:click="cancelCloseSelection">Abbrechen</button>
                 <button type="button"
                         class="text-xs px-3 py-1.5 rounded-md bg-blue-600 text-white hover:bg-blue-700 cursor-pointer"
@@ -370,16 +367,13 @@
 
     <flux:modal wire:model.self="showDeleteConfirm" class="md:w-96">
         <div class="space-y-6 p-4">
-            <div>
-                <h3 class="text-base font-semibold">Feedback wirklich löschen?</h3>
-                <p class="mt-1 text-sm text-zinc-600 dark:text-zinc-300">
-                    Das Feedback wird <strong>archiviert (Soft Delete)</strong>. Du kannst es später wiederherstellen.
-                </p>
-            </div>
-            <div class="flex">
-                <div class="flex-1"></div>
+            <h3 class="text-base font-semibold">Feedback wirklich löschen?</h3>
+            <p class="mt-1 text-sm text-zinc-600 dark:text-zinc-300">
+                Das Feedback wird <strong>archiviert (Soft Delete)</strong>. Du kannst es später wiederherstellen.
+            </p>
+            <div class="flex justify-end gap-2">
                 <button type="button"
-                        class="text-xs px-3 py-1.5 rounded-md border border-zinc-300 dark:border-zinc-700 mr-2 hover:bg-zinc-100 dark:hover:bg-zinc-800 cursor-pointer"
+                        class="text-xs px-3 py-1.5 rounded-md border hover:bg-zinc-100 dark:hover:bg-zinc-800 cursor-pointer"
                         wire:click="cancelDelete">Abbrechen</button>
                 <button type="button"
                         class="text-xs px-3 py-1.5 rounded-md bg-rose-600 text-white hover:bg-rose-700 cursor-pointer"
@@ -390,90 +384,41 @@
 </div>
 
 <script>
-    /**
-     * Unified composer: @mentions + Jira tokens ( (y) (/) (x) -> 👍 ✅ ❌ )
-     * Usage: x-data="composeBox({...})" + textarea x-ref="replyTa"
-     */
-    window.composeBox = function(api) {
-        const AT = '@';
-        const jiraMap = new Map([ ['/', '✅'], ['x', '❌'], ['y', '👍'] ]);
-
-        return {
-            range: null,
-
-            textarea(){ return this.$refs.replyTa; },
-            setCaret(el, pos){ el.focus(); el.setSelectionRange(pos, pos); },
-
-            // Mentions
-            detectMentions(){
-                const ta = this.textarea(); if (!ta) return;
-                const v = ta.value ?? '';
-                const pos = ta.selectionStart ?? 0;
-                const pre = v.slice(0, pos);
-                const m = pre.match(new RegExp(AT+'([\\p{L}\\p{M}\\.\\- ]{1,50})$','u'));
-                if (m) {
-                    const q = (m[1] || '').trim();
-                    this.range = { start: pos - m[0].length, end: pos };
-                    api.setQuery(q);
-                    if (q.length > 0) api.open();
-                } else {
-                    this.range = null; api.setQuery(''); api.close();
-                }
-            },
-
-            insert(text){
-                if (!this.range) return;
-                const ta = this.textarea(); const v = ta.value ?? '';
-                const nv = v.slice(0, this.range.start) + text + v.slice(this.range.end);
-                ta.value = nv; api.setText(nv);
-                const np = this.range.start + text.length;
-                this.setCaret(ta, np);
-                api.setQuery(''); api.close(); this.range = null;
-            },
-
-            // Jira tokens before caret: (y) (/) (x)
-            replaceJiraToken(triggerKey){
-                const ta = this.textarea(); if (!ta) return false;
-                const val = ta.value ?? '';
-                const pos = ta.selectionStart ?? 0;
-                const leftRaw = val.slice(0, pos);
-                const right   = val.slice(pos);
-
-                const ws = leftRaw.match(/[ \t\r\n]+$/);
-                const trailingWS = ws ? ws[0] : '';
-                const left = trailingWS ? leftRaw.slice(0, leftRaw.length - trailingWS.length) : leftRaw;
-
-                const m = left.match(/\(([^\s()]{1,10})\)$/i);
-                if (!m) return false;
-
-                const token = (m[1] || '').toLowerCase();
-                if (!jiraMap.has(token)) return false;
-
-                const emoji = jiraMap.get(token);
-                const newLeft = left.slice(0, left.length - m[0].length) + emoji;
-
-                let triggerChar = '';
-                if (triggerKey === ' ') triggerChar = ' ';
-                else if (triggerKey === 'Enter') triggerChar = '\n';
-                else if (triggerKey === 'Tab') triggerChar = '\t';
-
-                const newVal = newLeft + trailingWS + triggerChar + right;
-                api.setText(newVal);
-                const newPos = (newLeft + trailingWS + triggerChar).length;
-                this.setCaret(ta, newPos);
-
-                // after replacement, also re-check mentions state
-                this.range = null; api.setQuery(''); api.close();
-                return true;
-            },
-
-            onKeydown(e){
-                if ([' ', 'Enter', 'Tab'].includes(e.key)) {
-                    const replaced = this.replaceJiraToken(e.key);
-                    if (replaced) { e.preventDefault(); return; }
-                }
-                queueMicrotask(() => this.detectMentions());
-            }
+    /* Fallback: if helpers weren’t loaded by the parent (e.g., direct route to feedback-show) */
+    if (!window.composeBox) {
+        window.composeBox = function(api) {
+            const jiraMap = new Map([ ['/', '✅'], ['x', '❌'], ['y', '👍'] ]);
+            return {
+                range:null,
+                textarea(){ return this.$refs.replyTa; },
+                setCaret(el,pos){ try{ el?.focus(); el?.setSelectionRange(pos,pos); }catch(e){} },
+                detect(){
+                    const ta=this.textarea(); if(!ta)return;
+                    const v=ta.value??'', p=ta.selectionStart??0, pre=v.slice(0,p);
+                    const m=pre.match(new RegExp('@([\\p{L}\\p{M}\\.\\- ]{1,50})$','u'));
+                    if(m){ const q=(m[1]||'').trim(); this.range={start:p-m[0].length,end:p}; api.setQuery(q); if(q.length>0) api.open(); }
+                    else { this.range=null; api.setQuery(''); api.close(); }
+                },
+                insert(text){
+                    if(!this.range)return; const ta=this.textarea(); if(!ta)return;
+                    const v=ta.value??''; const nv=v.slice(0,this.range.start)+text+v.slice(this.range.end);
+                    ta.value=nv; api.setText(nv); const np=this.range.start+text.length; this.setCaret(ta,np);
+                    api.setQuery(''); api.close(); this.range=null;
+                },
+                replaceJiraToken(triggerKey){
+                    const ta=this.textarea(); if(!ta)return false;
+                    const val=ta.value??'', pos=ta.selectionStart??0, leftRaw=val.slice(0,pos), right=val.slice(pos);
+                    const ws=leftRaw.match(/[ \t\r\n]+$/); const trailing=ws?ws[0]:''; const left=trailing?leftRaw.slice(0,leftRaw.length-trailing.length):leftRaw;
+                    const m=left.match(/\(([^\s()]{1,10})\)$/i); if(!m) return false;
+                    const emoji=({'/':'✅','x':'❌','y':'👍'})[(m[1]||'').toLowerCase()]; if(!emoji) return false;
+                    const newLeft=left.slice(0,left.length-m[0].length)+emoji;
+                    let trigger=''; if(triggerKey===' ')trigger=' '; else if(triggerKey==='Enter')trigger='\n'; else if(triggerKey==='Tab')trigger='\t';
+                    const newVal=newLeft+trailing+trigger+right; api.setText(newVal); const newPos=(newLeft+trailing+trigger).length; this.setCaret(ta,newPos);
+                    this.range=null; api.setQuery(''); api.close(); return true;
+                },
+                onKeydown(e){ if([' ','Enter','Tab'].includes(e.key)){ if(this.replaceJiraToken(e.key)){ e.preventDefault(); return; } } queueMicrotask(()=>this.detect()); }
+            };
         };
-    };
+        window.mentionBox = function(api){ return window.composeBox(api); };
+    }
 </script>
