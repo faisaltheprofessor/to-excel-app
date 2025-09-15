@@ -36,7 +36,7 @@ class TreeEditor extends Component
 
     /** Inline edit state */
     public $editNodePath = null;   // array<int>|null
-    public $editField = null;   // "name" | "appName" | null
+    public $editField = null;      // "name" | "appName" | null
     public $editValue = '';
 
     /** Pending move (confirmation dialog) */
@@ -147,42 +147,58 @@ class TreeEditor extends Component
     /** Add a new node at selected path (or root). Optional predefined sub-structure. */
     public function addNode()
     {
-            $nameInput = $this->translitUmlauts(trim((string)$this->newNodeName));
-    if ($nameInput === '') return;
-    if ($reason = $this->invalidNameReason($nameInput)) {
-        $this->addError('newNodeName', $reason);
-        return;
-    }
+        $nameInput = $this->translitUmlauts(trim((string)$this->newNodeName));
 
-    $appInputRaw = $this->translitUmlauts(trim((string)$this->newAppName));
-    if ($appInputRaw !== '' && ($reason = $this->invalidNameReason($appInputRaw))) {
-        $this->addError('newAppName', $reason);
-        return;
-    }
-
-    $manual = false;
-    if ($appInputRaw !== '') {
-        // user provided appName → normalize leading SB, lock manual
-        $computedAppName = $this->normalizeSbPrefix($appInputRaw);
-        $manual = true;
-    } else {
-        // no appName provided → only normalize if name starts with SB; if changed, lock manual
-        $fromName = $this->normalizeSbPrefix($nameInput);
-        if ($fromName !== $nameInput) {
-            $computedAppName = $fromName; // e.g., SBKasse -> SbKasse
-            $manual = true;               // prevent refresh from turning it into Parent_Sb
-        } else {
-            $computedAppName = $nameInput; // keep old behavior
+        // STRICT: empty & whitespace
+        if ($nameInput === '') {
+            $this->addError('newNodeName', 'Name darf nicht leer sein.');
+            return;
         }
-    }
+        if (preg_match('/\s/u', $nameInput)) {
+            $this->addError('newNodeName', 'Name darf keine Leerzeichen enthalten.');
+            return;
+        }
 
-    $newNode = [
-        'name'           => $nameInput,
-        'appName'        => $computedAppName,
-        'appNameManual'  => $manual,
-        'children'       => [],
-        'deletable'      => true,
-    ];
+        if ($reason = $this->invalidNameReason($nameInput)) {
+            $this->addError('newNodeName', $reason);
+            return;
+        }
+
+        $appInputRaw = $this->translitUmlauts(trim((string)$this->newAppName));
+        if ($appInputRaw !== '') {
+            if (preg_match('/\s/u', $appInputRaw)) {
+                $this->addError('newAppName', 'Name darf keine Leerzeichen enthalten.');
+                return;
+            }
+            if ($reason = $this->invalidNameReason($appInputRaw)) {
+                $this->addError('newAppName', $reason);
+                return;
+            }
+        }
+
+        $manual = false;
+        if ($appInputRaw !== '') {
+            // user provided appName → normalize leading SB, lock manual
+            $computedAppName = $this->normalizeSbPrefix($appInputRaw);
+            $manual = true;
+        } else {
+            // no appName provided → only normalize if name starts with SB; if changed, lock manual
+            $fromName = $this->normalizeSbPrefix($nameInput);
+            if ($fromName !== $nameInput) {
+                $computedAppName = $fromName; // e.g., SBKasse -> SbKasse
+                $manual = true;               // prevent refresh from turning it into Parent_Sb
+            } else {
+                $computedAppName = $nameInput; // keep old behavior
+            }
+        }
+
+        $newNode = [
+            'name'           => $nameInput,
+            'appName'        => $computedAppName,
+            'appNameManual'  => $manual,
+            'children'       => [],
+            'deletable'      => true,
+        ];
 
         if ($this->addWithStructure) {
             $parentAtPath = $this->effectiveParentNameForPath($this->selectedNodePath);
@@ -266,9 +282,20 @@ class TreeEditor extends Component
         if ($this->editNodePath === null || $this->editField === null) return;
 
         $val = $this->translitUmlauts(trim((string)($value ?? $this->editValue)));
+
+        // STRICT: empty & whitespace
+        if ($val === '') {
+            $this->addError('editValue', 'Name darf nicht leer sein.');
+            return; // keep editing state, show error
+        }
+        if (preg_match('/\s/u', $val)) {
+            $this->addError('editValue', 'Name darf keine Leerzeichen enthalten.');
+            return; // keep editing state, show error
+        }
+
         if ($reason = $this->invalidNameReason($val)) {
             $this->addError('editValue', $reason);
-            return;
+            return; // keep editing state, show error
         }
 
         $before = $this->getNodeAtPath($this->tree, $this->editNodePath);
@@ -291,6 +318,7 @@ class TreeEditor extends Component
 
         $this->refreshAppNames($this->tree, null, null);
 
+        // only clear edit state after a successful save
         $this->editNodePath = null;
         $this->editField = null;
         $this->editValue = '';

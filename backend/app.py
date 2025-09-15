@@ -113,7 +113,7 @@ def create_sheet(last_name_col:int, perm1_cols:int, perm2_cols:int, max_depth:in
     for r,h in [(ROW_BAND,24),(ROW_TITLE,20),(ROW_HEADERS-1,18)]:
         ws.row_dimensions[r].height = h
 
-    # Header bands
+    # Header bands + titles
     ws.merge_cells(start_row=ROW_BAND, start_column=perm1_s, end_row=ROW_BAND, end_column=perm1_e)
     c1 = ws.cell(row=ROW_BAND, column=perm1_s, value="eDir")
     c1.fill = ORANGE; c1.font = WHITEB; c1.alignment = CENTER; c1.border = BOX
@@ -152,22 +152,18 @@ def create_sheet(last_name_col:int, perm1_cols:int, perm2_cols:int, max_depth:in
         "tree_base": tree_base, "tree_end": tree_end, "max_depth": max_depth
     }
 
-# --- Tree connector drawing (chars) for LEFT only ---
+# --- Tree connector drawing (LEFT only) ---
 def draw_connectors(ws, row, level, last_stack, base_col=1):
     """
-    Draw elbow/verticals in the LEFT structure using box-drawing characters.
-    - At ancestors d < level-1: write '│' where that ancestor still has following siblings.
-    - At the parent column (level-1): write '├' if current is not last, else '└'.
-    (Label itself goes into base_col+level; we don't draw horizontals.)
+    Draw connectors for the current node row:
+      - Ancestors (d < level-1): draw '│' if that ancestor still has following siblings.
+      - Parent col (level-1): draw '├' if current is not last, else '└'.
     """
-    if level <= 0:
-        return
-    # ancestor verticals on this very row
+    if level <= 0: return
     for d in range(0, level - 1):
         if not last_stack[d]:
             c = ws.cell(row=row, column=base_col + d, value="│")
             c.alignment = CENTER; c.font = GRAY
-    # elbow at parent col
     parent_col = base_col + (level - 1)
     elbow = "└" if last_stack[-1] else "├"
     c = ws.cell(row=row, column=parent_col, value=elbow)
@@ -175,34 +171,35 @@ def draw_connectors(ws, row, level, last_stack, base_col=1):
 
 def draw_verticals_on_blank(ws, row, level, last_stack, base_col=1):
     """
-    For completely blank spacer rows: force the vertical continuation lines.
-    - Ancestors d < level-1 with following siblings -> '│'
-    - Parent col (level-1): if current is NOT last -> '│'
+    Spacer rows: continue ancestor verticals; parent col continues ONLY if not-last,
+    so lines run across the whole level but stop cleanly after the final sibling.
     """
-    if level <= 0:
-        return
+    if level <= 0: return
+    # ancestors
     for d in range(0, level - 1):
         if not last_stack[d]:
             c = ws.cell(row=row, column=base_col + d, value="│")
             c.alignment = CENTER; c.font = GRAY
+    # parent column vertical ONLY when current node has a following sibling
     if not last_stack[-1]:
         pc = ws.cell(row=row, column=base_col + (level - 1), value="│")
         pc.alignment = CENTER; pc.font = GRAY
 
 def extend_connectors(ws, start_row, end_row, level, last_stack, base_col=1):
     """
-    Extend vertical lines DOWN from start_row until end_row (inclusive),
-    so the lines visually continue through the subtree until the next sibling row.
+    Extend verticals from start_row..end_row inclusive for:
+      - All ancestor cols (d < level-1) that have following siblings.
+      - The parent col (level-1) ONLY if current node is NOT last at this level.
+    This gives a continuous line across the whole level, without dangling after the last item.
     """
-    if level <= 0 or end_row < start_row:
-        return
+    if level <= 0 or end_row < start_row: return
     for r in range(start_row, end_row + 1):
-        # ancestor verticals
+        # ancestors
         for d in range(0, level - 1):
             if not last_stack[d]:
                 c = ws.cell(row=r, column=base_col + d, value="│")
                 c.alignment = CENTER; c.font = GRAY
-        # parent vertical continues only if current is not last
+        # parent column (only if there is a following sibling at this level)
         if not last_stack[-1]:
             pc = ws.cell(row=r, column=base_col + (level - 1), value="│")
             pc.alignment = CENTER; pc.font = GRAY
@@ -237,15 +234,15 @@ def write_rows(ws, nodes, row, level, last_stack, cols, lineage_names, lineage_a
             continue
         is_last = (i == len(nodes) - 1)
 
-        # TOP spacer for AblgOE — draw verticals on the blank row so lines don't break
+        # optional spacer around AblgOE: keep verticals across the level
         if is_ablg(appn) or is_ablg(name):
             draw_verticals_on_blank(ws, row, level, last_stack + [is_last], base_col=1)
             row += 1
 
-        # Draw elbow/verticals at this row (LEFT)
+        # connectors at this row (LEFT)
         draw_connectors(ws, row, level, last_stack + [is_last], base_col=1)
 
-        # Name cell (LEFT structure)
+        # name cell (LEFT)
         nc = ws.cell(row=row, column=name_col, value=name if name else "(unnamed)")
         style_name_cell(nc, name, bool(children))
 
@@ -275,24 +272,21 @@ def write_rows(ws, nodes, row, level, last_stack, cols, lineage_names, lineage_a
                 g = ws.cell(row=row, column=j, value=val)
                 g.alignment = LEFT; g.border = BOX
 
-        # Flat label column
+        # flat label
         flat_label = appn if appn else (name if name else "(unnamed)")
         fc = ws.cell(row=row, column=cols["flat_col"], value=flat_label)
         style_cell_like_node(fc, flat_label, bool(children))
 
-        # Right-hand “Baum” label ONLY (no connector chars on the right)
+        # right “Baum” (no connectors there)
         r_name_col = cols["tree_base"] + level
         tv_label = appn if appn else (name if name else "(unnamed)")
         tv = ws.cell(row=row, column=r_name_col, value=tv_label)
         style_cell_like_node(tv, tv_label, bool(children))
 
-        # --- Remember the start of this subtree ---
+        # mark subtree start, then recurse
         subtree_start_row = row
-
-        # advance to next row for children
         row += 1
 
-        # Recurse into children
         if children:
             row = write_rows(
                 ws, children, row, level + 1, last_stack + [is_last], cols,
@@ -300,12 +294,11 @@ def write_rows(ws, nodes, row, level, last_stack, cols, lineage_names, lineage_a
                 lineage_apps + [appn]
             )
 
-        # After children have been written, extend verticals from this node
-        # down to the last row of its subtree (row-1).
+        # extend verticals down through this subtree (ancestors + parent if not last)
         subtree_end_row = row - 1
         extend_connectors(ws, subtree_start_row + 1, subtree_end_row, level, last_stack + [is_last], base_col=1)
 
-        # BOTTOM spacer for AblgOE — also draw verticals on the blank row
+        # bottom spacer for AblgOE
         if is_ablg(appn) or is_ablg(name):
             draw_verticals_on_blank(ws, row, level, last_stack + [is_last], base_col=1)
             row += 1
@@ -339,7 +332,7 @@ def allowed_types_for(label, typ):
       - For Aktenablage: 'GOV_FILE'
       - Else: ''
     """
-    lab = (label or "").strip().lower()
+    lab = (label or "").lower()
     if typ == "Posteingang" or lab.startswith("pe_") or "poeing" in lab:
         return "GOV_WORKING_FOLDER_INBOX"
     return "GOV_FILE" if typ == "Aktenablage" else ""
@@ -389,6 +382,10 @@ def make_addr(group_key: str, suffix: str = "") -> str:
     key = f"{group_key}-{suffix}" if suffix else group_key
     return f"{key}@{ORG_NAME}"
 
+def is_poe_label(label: str) -> bool:
+    low = (label or "").lower()
+    return low.startswith("pe_") or "poeing" in low
+
 def write_group_recursive(ws, node, r, path_names, path_apps, poeings):
     """
     Sheet 2 writer:
@@ -421,7 +418,7 @@ def write_group_recursive(ws, node, r, path_names, path_apps, poeings):
     # A..F
     values = [display_a, desc, parent_display, typ,
               break_inheritance_from_node(node, desc),
-              allowed_types_for(label, "Posteingang" if (label or "").lower().startswith("pe_") or "poeing" in (label or "").lower() else typ)]
+              allowed_types_for(label, "Posteingang" if is_poe_label(label) else typ)]
     for j, v in enumerate(values, start=1):
         c = ws.cell(row=r, column=j, value=v)
         c.alignment = LEFT
@@ -453,8 +450,7 @@ def write_group_recursive(ws, node, r, path_names, path_apps, poeings):
     current_row = r
 
     # Remember Pe_* locations for PoKorb creation: store the *app* path (ancestors' app names)
-    low = (label or "").lower()
-    if low.startswith("pe_") or "poeing" in low:
+    if is_poe_label(label):
         poeings.append({"path": list(path_apps)})
 
     # Recurse

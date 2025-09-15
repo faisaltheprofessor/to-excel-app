@@ -58,7 +58,7 @@
         wire:click.prevent="selectNode({{ json_encode($path) }})"
     >
         {{-- folder icon hue matches level --}}
-        <flux:icon.folder class="w-5 h-5 {{ $iconClass }}" />
+        <flux:icon.folder class="w-5 h-5 {{ $iconClass }}"/>
 
         {{-- NAME --}}
         <div class="flex items-center gap-1">
@@ -76,12 +76,18 @@
                     {{-- bold ✓ and ✕ controls --}}
                     <div class="absolute inset-y-0 right-1 flex items-center gap-1">
                         <button type="button" wire:click.stop="saveInlineEdit" class="p-0.5" title="Speichern">
-                            <flux:icon.check class="w-5 h-5 text-green-600 dark:text-green-400 cursor-pointer stroke-[2.5]" />
+                            <flux:icon.check
+                                class="w-5 h-5 text-green-600 dark:text-green-400 cursor-pointer stroke-[2.5]"/>
                         </button>
                         <button type="button" wire:click.stop="cancelInlineEdit" class="p-0.5" title="Abbrechen">
-                            <flux:icon.x-mark class="w-5 h-5 text-red-600 dark:text-red-400 cursor-pointer stroke-[2.5]" />
+                            <flux:icon.x-mark
+                                class="w-5 h-5 text-red-600 dark:text-red-400 cursor-pointer stroke-[2.5]"/>
                         </button>
                     </div>
+
+                    {{--                    @error('editValue')--}}
+                    {{--    <div class="text-xs text-red-600 mt-1">{{ $message }}</div>--}}
+                    {{--@enderror--}}
                 </div>
             @else
                 <span
@@ -111,12 +117,18 @@
                     {{-- bold ✓ and ✕ controls --}}
                     <div class="absolute inset-y-0 right-1 flex items-center gap-1">
                         <button type="button" wire:click.stop="saveInlineEdit" class="p-0.5" title="Speichern">
-                            <flux:icon.check class="w-5 h-5 text-green-600 dark:text-green-400 cursor-pointer stroke-[2.5]" />
+                            <flux:icon.check
+                                class="w-5 h-5 text-green-600 dark:text-green-400 cursor-pointer stroke-[2.5]"/>
                         </button>
                         <button type="button" wire:click.stop="cancelInlineEdit" class="p-0.5" title="Abbrechen">
-                            <flux:icon.x-mark class="w-5 h-5 text-red-600 dark:text-red-400 cursor-pointer stroke-[2.5]" />
+                            <flux:icon.x-mark
+                                class="w-5 h-5 text-red-600 dark:text-red-400 cursor-pointer stroke-[2.5]"/>
                         </button>
                     </div>
+                    {{--                    @error('editValue')--}}
+                    {{--    <div class="text-xs text-red-600 mt-1">{{ $message }}</div>--}}
+                    {{--@enderror--}}
+
                 </div>
             @else
                 <span
@@ -137,9 +149,10 @@
                 size="sm"
                 class="ml-auto"
             >
-                <flux:icon.trash class="w-4 h-4" />
+                <flux:icon.trash class="w-4 h-4"/>
             </flux:button>
         @endif
+
     </div>
 
     {{-- CHILDREN --}}
