@@ -29,7 +29,7 @@ class FeedbackShow extends Component
     public string $tagInput = '';
 
     // reactions
-    public array $quickEmojis = ['👍','❤️','🎉','🚀','👀'];
+    public array $quickEmojis = ['👍', '❤️', '🎉', '🚀', '👀'];
     public array $reactionHover = [];
 
     // mentions
@@ -39,58 +39,79 @@ class FeedbackShow extends Component
 
     // permissions
     public bool $canModifyFeedback = false; // owner + not closed + not deleted
-    public bool $canInteract       = true;  // not closed + not deleted
+    public bool $canInteract = true;  // not closed + not deleted
+    public bool $canEditStatus = false; // anyone until closed/deleted
 
-    // inline edit: feedback
+    // meta-dirty handling
+    public bool $metaDirty = false;
+    public string $previousStatus = 'open';
+
+    // inline edit: feedback (owner only)
     public bool $editingFeedback = false;
     public string $editTitle = '';
     public string $editMessage = '';
 
-    // inline edit: comment
+    // inline edit: comment (owner only)
     public ?int $editingCommentId = null;
     public string $editingCommentBody = '';
 
-    // history view state (Flux modal content is a pre-rendered HTML string)
-    public bool $historyOpen = false;
+    // history indicators
+    public bool $feedbackEdited = false;     // feedback has any edit rows
+    public array $commentEditedMap = [];     // [comment_id => true]
+
+    // history modal (wire:model)
+    public bool $showHistoryModal = false;
     public string $historyTitle = '';
     public string $historyHtml = '';
 
-    // quick “edited” flags for badges
-    public bool $feedbackEdited = false;             // true if history exists
-    public array $commentEditedMap = [];             // [comment_id => true]
+    public bool $showDeleteConfirm = false;
+
+    // close-warning modal (wire:model)
+    public bool $showCloseModal = false;
 
     public function mount(Feedback $feedback): void
     {
         $this->feedback = $feedback->fresh();
-        $this->status   = $this->feedback->status ?? 'open';
-        $this->tags     = $this->feedback->tags ?? ['UI Improvement'];
+        $this->status = $this->feedback->status ?? 'open';
+        $this->tags = $this->feedback->tags ?? ['UI Improvement'];
         $this->priority = $this->feedback->priority ?? 'normal';
+
+        $this->previousStatus = $this->status;
 
         $this->recomputePermissions();
         $this->computeEditedFlags();
+        $this->metaDirty = $this->isMetaDirty();
     }
 
     private function recomputePermissions(): void
     {
-        $uid       = Auth::id();
-        $isOwner   = ($this->feedback->user_id === $uid);
-        $isClosed  = ($this->feedback->status === 'closed');
+        $uid = Auth::id();
+        $isOwner = ($this->feedback->user_id === $uid);
+        $isClosed = ($this->feedback->status === 'closed'); // "abgeschlossen"
         $isDeleted = !is_null($this->feedback->deleted_at ?? null);
 
         $this->canModifyFeedback = $isOwner && !$isClosed && !$isDeleted;
-        $this->canInteract       = !$isClosed && !$isDeleted;
+        $this->canInteract = !$isClosed && !$isDeleted;
+        $this->canEditStatus = !$isClosed && !$isDeleted;
     }
 
     private function computeEditedFlags(): void
     {
         $this->feedbackEdited = FeedbackEdit::where('feedback_id', $this->feedback->id)->exists();
 
-        $this->commentEditedMap = FeedbackCommentEdit::query()
-            ->whereIn('comment_id', $this->feedback->comments()->pluck('id'))
+        $commentIds = $this->feedback->comments()->pluck('id');
+        $this->commentEditedMap = FeedbackCommentEdit::whereIn('comment_id', $commentIds)
             ->get()
             ->groupBy('comment_id')
-            ->map(fn($g) => true)
+            ->map(fn() => true)
             ->toArray();
+    }
+
+    private function isMetaDirty(): bool
+    {
+        $dirtyStatus = ($this->status !== ($this->feedback->status ?? 'open'));
+        $dirtyPriority = $this->canModifyFeedback && ($this->priority !== ($this->feedback->priority ?? 'normal'));
+        return $dirtyStatus || $dirtyPriority;
     }
 
     // ----- Comments & mentions -----
@@ -108,9 +129,9 @@ class FeedbackShow extends Component
 
         FeedbackComment::create([
             'feedback_id' => $this->feedback->id,
-            'user_id'     => Auth::id(),
-            'body'        => $this->reply,
-            'parent_id'   => $this->replyTo,
+            'user_id' => Auth::id(),
+            'body' => $this->reply,
+            'parent_id' => $this->replyTo,
         ]);
 
         $this->reply = '';
@@ -136,14 +157,18 @@ class FeedbackShow extends Component
     public function updatedMentionQuery(): void
     {
         $q = trim($this->mentionQuery);
-        if ($q === '') { $this->mentionResults = []; $this->mentionOpen = false; return; }
+        if ($q === '') {
+            $this->mentionResults = [];
+            $this->mentionOpen = false;
+            return;
+        }
 
         $this->mentionResults = User::query()
-            ->where('name', 'like', $q.'%')
+            ->where('name', 'like', $q . '%')
             ->orderBy('name')
             ->limit(8)
-            ->get(['id','name'])
-            ->map(fn($u)=>['id'=>$u->id,'name'=>$u->name])->all();
+            ->get(['id', 'name'])
+            ->map(fn($u) => ['id' => $u->id, 'name' => $u->name])->all();
 
         $this->mentionOpen = !empty($this->mentionResults);
     }
@@ -173,9 +198,9 @@ class FeedbackShow extends Component
         } else {
             FeedbackReaction::create([
                 'feedback_id' => $this->feedback->id,
-                'comment_id'  => $commentId,
-                'user_id'     => $userId,
-                'emoji'       => $emoji,
+                'comment_id' => $commentId,
+                'user_id' => $userId,
+                'emoji' => $emoji,
             ]);
         }
 
@@ -184,7 +209,7 @@ class FeedbackShow extends Component
 
     public function loadReactionUsers(string $emoji, ?int $commentId = null): void
     {
-        $key = $emoji.'|'.($commentId ?? 'null');
+        $key = $emoji . '|' . ($commentId ?? 'null');
 
         $rows = FeedbackReaction::query()
             ->where('feedback_id', $this->feedback->id)
@@ -209,19 +234,24 @@ class FeedbackShow extends Component
         $clean = array_values(array_unique(array_filter(array_map('trim', $this->tags))));
         if (empty($clean)) $clean = ['UI Improvement'];
 
-        // history (tags change)
         $old = $this->feedback->tags ?? [];
         if ($old !== $clean) {
             FeedbackEdit::create([
                 'feedback_id' => $this->feedback->id,
-                'user_id'     => Auth::id(),
-                'changes'     => ['tags' => [$old, $clean]],
+                'user_id' => Auth::id(),
+                'changes' => ['tags' => [$old, $clean]],
+                'snapshot' => [
+                    'status' => $this->feedback->status,
+                    'priority' => $this->feedback->priority,
+                    'tags' => $clean,
+                ],
             ]);
             $this->feedbackEdited = true;
         }
 
         $this->feedback->update(['tags' => $clean]);
         $this->tags = $clean;
+        $this->metaDirty = $this->isMetaDirty();
     }
 
     public function addTag(?string $t = null): void
@@ -245,41 +275,105 @@ class FeedbackShow extends Component
         $this->persistTags();
     }
 
-public function saveMeta(): void
-{
-    $status = in_array($this->status, \App\Models\Feedback::STATUSES, true) ? $this->status : 'open';
-    $prio   = in_array($this->priority, \App\Models\Feedback::PRIORITIES, true) ? $this->priority : 'normal';
+    // react to select changes to update dirty flag + close warning
+    public function updatedStatus(string $value): void
+    {
+        if (!$this->canEditStatus) {
+            $this->status = $this->feedback->status ?? 'open';
+            return;
+        }
+        if ($value === 'closed') {
+            $this->showCloseModal = true;
+        }
+        $this->metaDirty = $this->isMetaDirty();
+    }
 
-    $old = $this->feedback->only(['status','priority','tags']);
+    public function updatedPriority(string $value): void
+    {
+        if (!$this->canModifyFeedback) {
+            $this->priority = $this->feedback->priority ?? 'normal';
+            return;
+        }
+        $this->metaDirty = $this->isMetaDirty();
+    }
 
-    $this->feedback->update([
-        'status'   => $status,
-        'priority' => $prio,
-    ]);
+    public function confirmCloseInfo(): void
+    {
+        $this->showCloseModal = false;
+        $this->metaDirty = $this->isMetaDirty();
+    }
 
-    $new = $this->feedback->only(['status','priority','tags']);
+    public function cancelCloseSelection(): void
+    {
+        $this->status = $this->previousStatus;
+        $this->showCloseModal = false;
+        $this->metaDirty = $this->isMetaDirty();
+    }
 
-    \App\Models\FeedbackEdit::create([
-        'feedback_id' => $this->feedback->id,
-        'user_id'     => \Auth::id(),
-        'changes'     => [
-            'status'   => [$old['status'], $new['status']],
-            'priority' => [$old['priority'], $new['priority']],
-            'tags'     => [$old['tags'], $new['tags']],
-        ],
-        'snapshot'    => $new, // ✅ always provide full snapshot
-    ]);
+    public function saveMeta(): void
+    {
+        // lock if already closed or deleted
+        if ($this->feedback->status === 'closed' || !is_null($this->feedback->deleted_at ?? null)) {
+            return;
+        }
 
-    $this->dispatch('notify', body: 'Änderungen gespeichert.');
-}
+        $newStatus = in_array($this->status, \App\Models\Feedback::STATUSES, true)
+            ? $this->status
+            : ($this->feedback->status ?? 'open');
 
-    // ----- Feedback inline edit -----
+        $newPrio = in_array($this->priority, \App\Models\Feedback::PRIORITIES, true)
+            ? $this->priority
+            : ($this->feedback->priority ?? 'normal');
+
+        $changes = [];
+
+        if ($this->canEditStatus && $newStatus !== $this->feedback->status) {
+            $changes['status'] = [$this->feedback->status, $newStatus];
+        } else {
+            $newStatus = $this->feedback->status;
+            $this->status = $newStatus;
+        }
+
+        if ($this->canModifyFeedback && $newPrio !== $this->feedback->priority) {
+            $changes['priority'] = [$this->feedback->priority, $newPrio];
+        } else {
+            $newPrio = $this->feedback->priority;
+            $this->priority = $newPrio;
+        }
+
+        if (!empty($changes)) {
+            $this->feedback->update([
+                'status' => $newStatus,
+                'priority' => $newPrio,
+            ]);
+
+            $snap = $this->feedback->only(['status', 'priority', 'tags']);
+
+            FeedbackEdit::create([
+                'feedback_id' => $this->feedback->id,
+                'user_id' => Auth::id(),
+                'changes' => $changes,
+                'snapshot' => $snap,
+            ]);
+
+            $this->feedbackEdited = true;
+            $this->previousStatus = $this->status;
+
+            $this->feedback->refresh();
+            $this->recomputePermissions();
+            $this->dispatch('notify', body: 'Änderungen gespeichert.');
+        }
+
+        $this->metaDirty = $this->isMetaDirty();
+    }
+
+    // ----- Feedback inline edit (owner only) -----
 
     public function startEditFeedback(): void
     {
         if (!$this->canModifyFeedback) return;
         $this->editingFeedback = true;
-        $this->editTitle   = (string)($this->feedback->title ?? '');
+        $this->editTitle = (string)($this->feedback->title ?? '');
         $this->editMessage = (string)($this->feedback->message ?? '');
     }
 
@@ -290,40 +384,45 @@ public function saveMeta(): void
         $this->editMessage = '';
     }
 
-public function saveEditFeedback(): void
-{
-    if (!$this->canModifyFeedback) return;
+    public function saveEditFeedback(): void
+    {
+        if (!$this->canModifyFeedback) return;
 
-    $old = $this->feedback->only(['title','message','status','priority','tags']);
+        $data = $this->validate([
+            'editTitle' => 'required|string|min:1|max:200',
+            'editMessage' => 'required|string|min:1|max:10000',
+        ]);
 
-    $data = $this->validate([
-        'editTitle'   => 'required|string|min:1|max:200',
-        'editMessage' => 'required|string|min:1|max:10000',
-    ]);
+        $changes = [];
+        if (($this->feedback->title ?? '') !== $data['editTitle']) {
+            $changes['title'] = [$this->feedback->title, $data['editTitle']];
+        }
+        if (($this->feedback->message ?? '') !== $data['editMessage']) {
+            $changes['message'] = [$this->feedback->message, $data['editMessage']];
+        }
 
-    $this->feedback->update([
-        'title'   => $data['editTitle'],
-        'message' => $data['editMessage'],
-    ]);
+        if (!empty($changes)) {
+            $this->feedback->update([
+                'title' => $data['editTitle'],
+                'message' => $data['editMessage'],
+            ]);
 
-    $new = $this->feedback->only(['title','message','status','priority','tags']);
+            FeedbackEdit::create([
+                'feedback_id' => $this->feedback->id,
+                'user_id' => Auth::id(),
+                'changes' => $changes,
+                'snapshot' => $this->feedback->only(['title', 'message', 'status', 'priority', 'tags']),
+            ]);
 
-    \App\Models\FeedbackEdit::create([
-        'feedback_id' => $this->feedback->id,
-        'user_id'     => \Auth::id(),
-        'changes'     => [
-            'title'   => [$old['title'], $new['title']],
-            'message' => [$old['message'], $new['message']],
-        ],
-        'snapshot'    => $new,
-    ]);
+            $this->feedbackEdited = true;
+        }
 
-    $this->editingFeedback = false;
-    $this->feedback->refresh();
-}
+        $this->editingFeedback = false;
+        $this->feedback->refresh();
+        $this->metaDirty = $this->isMetaDirty();
+    }
 
-
-    // ----- Comment inline edit -----
+    // ----- Comment inline edit (owner only) -----
 
     public function startEditComment(int $commentId): void
     {
@@ -333,7 +432,7 @@ public function saveEditFeedback(): void
         if (!$c || $c->feedback_id !== $this->feedback->id) return;
         if ($c->user_id !== Auth::id()) return;
 
-        $this->editingCommentId   = $c->id;
+        $this->editingCommentId = $c->id;
         $this->editingCommentBody = $c->body;
     }
 
@@ -355,13 +454,12 @@ public function saveEditFeedback(): void
         if (!$c || $c->feedback_id !== $this->feedback->id) return;
         if ($c->user_id !== Auth::id()) return;
 
-        // history
         if ($c->body !== $this->editingCommentBody) {
             FeedbackCommentEdit::create([
                 'comment_id' => $c->id,
-                'user_id'    => Auth::id(),
-                'old_body'   => $c->body,
-                'new_body'   => $this->editingCommentBody,
+                'user_id' => Auth::id(),
+                'old_body' => $c->body,
+                'new_body' => $this->editingCommentBody,
             ]);
             $this->commentEditedMap[$c->id] = true;
         }
@@ -373,7 +471,7 @@ public function saveEditFeedback(): void
         $this->dispatch('$refresh');
     }
 
-    // ----- Soft delete / restore -----
+    // ----- Soft delete / restore (owner only) -----
 
     public function deleteFeedback(): void
     {
@@ -385,21 +483,11 @@ public function saveEditFeedback(): void
         }
     }
 
-    public function restoreFeedback(): void
-    {
-        if ($this->feedback->user_id !== Auth::id()) return;
-        if (method_exists($this->feedback, 'restore')) {
-            $this->feedback->restore();
-            $this->feedback->refresh();
-            $this->recomputePermissions();
-        }
-    }
 
-    // ----- History modal API -----
+    // ----- History modal -----
 
     public function openFeedbackHistory(): void
     {
-        // Build safe HTML (no Blade loops inside flux:modal)
         $rows = FeedbackEdit::with('user:id,name')
             ->where('feedback_id', $this->feedback->id)
             ->orderByDesc('id')
@@ -412,21 +500,21 @@ public function saveEditFeedback(): void
         } else {
             foreach ($rows as $e) {
                 $buf .= '<div class="mb-3">';
-                $buf .= '<div class="text-xs text-zinc-500">'.e($e->created_at->format('d.m.Y H:i')).' · '.e($e->user->name ?? 'Unbekannt').'</div>';
+                $buf .= '<div class="text-xs text-zinc-500">' . e($e->created_at->format('d.m.Y H:i')) . ' · ' . e($e->user->name ?? 'Unbekannt') . '</div>';
                 $buf .= '<ul class="mt-1 list-disc list-inside text-sm">';
                 foreach (($e->changes ?? []) as $field => $pair) {
-                    [$old,$new] = $pair;
-                    $buf .= '<li><span class="font-medium">'.e(ucfirst($field)).'</span>: ';
-                    $buf .= '<span class="line-through opacity-70">'.e(is_array($old)? implode(', ',$old) : (string)$old).'</span> ';
-                    $buf .= '→ <span>'.e(is_array($new)? implode(', ',$new) : (string)$new).'</span></li>';
+                    [$old, $new] = $pair;
+                    $buf .= '<li><span class="font-medium">' . e(ucfirst($field)) . '</span>: ';
+                    $buf .= '<span class="line-through opacity-70">' . e(is_array($old) ? implode(', ', $old) : (string)$old) . '</span> ';
+                    $buf .= '→ <span>' . e(is_array($new) ? implode(', ', $new) : (string)$new) . '</span></li>';
                 }
                 $buf .= '</ul></div>';
             }
         }
 
         $this->historyTitle = 'Änderungshistorie (Feedback)';
-        $this->historyHtml  = $buf;
-        $this->historyOpen  = true;
+        $this->historyHtml = $buf;
+        $this->showHistoryModal = true;
     }
 
     public function openCommentHistory(int $commentId): void
@@ -443,23 +531,23 @@ public function saveEditFeedback(): void
         } else {
             foreach ($rows as $e) {
                 $buf .= '<div class="mb-3">';
-                $buf .= '<div class="text-xs text-zinc-500">'.e($e->created_at->format('d.m.Y H:i')).' · '.e($e->user->name ?? 'Unbekannt').'</div>';
-                $buf .= '<div class="mt-1 text-sm"><span class="font-medium">Vorher:</span> '.nl2br(e($e->old_body)).'</div>';
-                $buf .= '<div class="mt-1 text-sm"><span class="font-medium">Nachher:</span> '.nl2br(e($e->new_body)).'</div>';
+                $buf .= '<div class="text-xs text-zinc-500">' . e($e->created_at->format('d.m.Y H:i')) . ' · ' . e($e->user->name ?? 'Unbekannt') . '</div>';
+                $buf .= '<div class="mt-1 text-sm"><span class="font-medium">Vorher:</span> ' . nl2br(e($e->old_body)) . '</div>';
+                $buf .= '<div class="mt-1 text-sm"><span class="font-medium">Nachher:</span> ' . nl2br(e($e->new_body)) . '</div>';
                 $buf .= '</div>';
             }
         }
 
         $this->historyTitle = 'Änderungshistorie (Kommentar)';
-        $this->historyHtml  = $buf;
-        $this->historyOpen  = true;
+        $this->historyHtml = $buf;
+        $this->showHistoryModal = true;
     }
 
     public function closeHistory(): void
     {
-        $this->historyOpen = false;
-        $this->historyHtml = '';
+        $this->showHistoryModal = false;
         $this->historyTitle = '';
+        $this->historyHtml = '';
     }
 
     public function render()
@@ -476,16 +564,69 @@ public function saveEditFeedback(): void
         $attachments = $this->feedback->attachments ?? [];
 
         return view('livewire.feedback-show', [
-            'rootComments'      => $rootComments,
-            'attachments'       => $attachments,
-            'tagSuggestions'    => \App\Models\Feedback::TAG_SUGGESTIONS,
+            'rootComments' => $rootComments,
+            'attachments' => $attachments,
+            'tagSuggestions' => \App\Models\Feedback::TAG_SUGGESTIONS,
             'canModifyFeedback' => $this->canModifyFeedback,
-            'canInteract'       => $this->canInteract,
-            'feedbackEdited'    => $this->feedbackEdited,
-            'commentEditedMap'  => $this->commentEditedMap,
-            'historyOpen'       => $this->historyOpen,
-            'historyTitle'      => $this->historyTitle,
-            'historyHtml'       => $this->historyHtml,
+            'canInteract' => $this->canInteract,
+            'canEditStatus' => $this->canEditStatus,
+            'feedbackEdited' => $this->feedbackEdited,
+            'commentEditedMap' => $this->commentEditedMap,
+            'metaDirty' => $this->metaDirty,
         ]);
     }
+
+    public function askDelete(): void
+    {
+        // only owner can delete, and not when already deleted
+        if (!$this->canModifyFeedback || !is_null($this->feedback->deleted_at)) return;
+        $this->showDeleteConfirm = true;
+    }
+
+    public function cancelDelete(): void
+    {
+        $this->showDeleteConfirm = false;
+    }
+
+    public function confirmDelete(): void
+    {
+        if (!$this->canModifyFeedback || !is_null($this->feedback->deleted_at)) return;
+
+        $this->feedback->delete();
+        // re-fetch including trashed so Livewire keeps working
+        $this->feedback = \App\Models\Feedback::withTrashed()->findOrFail($this->feedback->id);
+
+        $this->recomputePermissions();
+        $this->showDeleteConfirm = false;
+        $this->dispatch('notify', body: 'Feedback gelöscht. Du kannst es wiederherstellen.');
+    }
+
+public function restoreFeedback(): void
+{
+    if ($this->feedback->user_id !== \Auth::id()) return;
+
+    $this->feedback->restore();
+
+    // reload with trashed to be safe
+    $this->feedback = \App\Models\Feedback::withTrashed()->findOrFail($this->feedback->id);
+
+    $this->recomputePermissions();
+    $this->dispatch('notify', body: 'Feedback wiederhergestellt.');
+}
+
+    public function hydrate(): void
+    {
+        // Ensure the model is reloaded with trashed rows allowed,
+        // otherwise Livewire request after delete would fail resolution.
+        if ($this->feedback?->id) {
+            $this->feedback = \App\Models\Feedback::withTrashed()->findOrFail($this->feedback->id);
+            // Keep status/priority in sync if needed
+            $this->status = $this->feedback->status ?? $this->status;
+            $this->priority = $this->feedback->priority ?? $this->priority;
+            $this->recomputePermissions();
+            $this->metaDirty = $this->isMetaDirty();
+        }
+    }
+
+
 }

@@ -7,13 +7,13 @@
         <span class="text-zinc-500 text-xs">{{ $comment->created_at->diffForHumans() }}</span>
 
         {{-- edited badge for comments --}}
-        @if(($commentEditedMap[$comment->id] ?? false))
-            <button type="button"
-                    class="text-[11px] px-1.5 py-0.5 rounded bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-300"
-                    wire:click="openCommentHistory({{ $comment->id }})">
-                (bearbeitet)
-            </button>
-        @endif
+@if(($commentEditedMap[$comment->id] ?? false))
+<button type="button"
+    class="text-[11px] px-1.5 py-0.5 rounded bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-300
+           hover:bg-zinc-200 dark:hover:bg-zinc-700 cursor-pointer"
+    wire:click="openCommentHistory({{ $comment->id }})"
+>(bearbeitet)</button>
+@endif
     </div>
 
     {{-- body OR editor --}}

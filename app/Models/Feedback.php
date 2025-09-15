@@ -72,4 +72,13 @@ class Feedback extends Model
     {
         return ($this->status === 'closed');
     }
+
+     public function resolveRouteBinding($value, $field = null)
+    {
+        $field = $field ?: $this->getRouteKeyName();
+
+        return static::withTrashed()
+            ->where($field, $value)
+            ->firstOrFail();
+    }
 }

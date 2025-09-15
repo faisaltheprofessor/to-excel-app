@@ -1,5 +1,4 @@
-<div class="p-6 space-y-8">
-    @php
+@php
     $statusDe = [
         'open'=>'Offen','in_progress'=>'In Arbeit','in_review'=>'Im Review','in_test'=>'Im Test',
         'resolved'=>'Gelöst','closed'=>'Geschlossen','wontfix'=>'Wird nicht behoben'
@@ -11,6 +10,7 @@
     $tagSuggestions = is_array($tagSuggestions ?? null) ? $tagSuggestions : [];
 @endphp
 
+<div class="p-6 space-y-8">
     {{-- Header --}}
     <div class="flex items-start justify-between">
         <h1 class="text-lg font-semibold">Feedback</h1>
@@ -31,7 +31,8 @@
                     </h2>
                     @if($feedbackEdited)
                         <button type="button"
-                                class="text-xs px-2 py-0.5 rounded bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-300"
+                                class="text-xs px-2 py-0.5 rounded bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-300
+                                       hover:bg-zinc-200 dark:hover:bg-zinc-700 cursor-pointer"
                                 wire:click="openFeedbackHistory">
                             (bearbeitet)
                         </button>
@@ -41,15 +42,17 @@
                 @if($canModifyFeedback)
                     @if(!$editingFeedback)
                         <button type="button"
-                                class="text-xs px-2 py-1 rounded-md border border-zinc-300 dark:border-zinc-700"
+                                class="text-xs px-2 py-1 rounded-md border border-zinc-300 dark:border-zinc-700
+                                       hover:bg-zinc-100 dark:hover:bg-zinc-800 cursor-pointer"
                                 wire:click="startEditFeedback">Bearbeiten</button>
                     @else
                         <div class="flex gap-2">
                             <button type="button"
-                                    class="text-xs px-2 py-1 rounded-md bg-blue-600 text-white"
+                                    class="text-xs px-2 py-1 rounded-md bg-blue-600 text-white hover:bg-blue-700 cursor-pointer"
                                     wire:click="saveEditFeedback">Speichern</button>
                             <button type="button"
-                                    class="text-xs px-2 py-1 rounded-md border border-zinc-300 dark:border-zinc-700"
+                                    class="text-xs px-2 py-1 rounded-md border border-zinc-300 dark:border-zinc-700
+                                           hover:bg-zinc-100 dark:hover:bg-zinc-800 cursor-pointer"
                                     wire:click="cancelEditFeedback">Abbrechen</button>
                         </div>
                     @endif
@@ -77,9 +80,13 @@
             <div class="flex flex-wrap items-center gap-2 rounded-xl bg-zinc-50 dark:bg-zinc-900/40 p-3">
                 <div class="flex items-center gap-2">
                     <span class="text-xs text-zinc-500">Status</span>
-                    <select wire:model.live="status"
-                            class="h-7 text-sm rounded-md border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-2"
-                            {{ $canModifyFeedback ? '' : 'disabled' }}>
+                    <select
+                        wire:model.live="status"
+                        class="h-7 text-sm rounded-md border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-2
+                               hover:bg-zinc-50 dark:hover:bg-zinc-800 cursor-pointer
+                               {{ $canEditStatus ? '' : 'opacity-50 cursor-not-allowed' }}"
+                        {{ $canEditStatus ? '' : 'disabled' }}
+                    >
                         @foreach(\App\Models\Feedback::STATUSES as $s)
                             <option value="{{ $s }}">{{ $statusDe[$s] ?? ucfirst($s) }}</option>
                         @endforeach
@@ -88,9 +95,13 @@
 
                 <div class="flex items-center gap-2">
                     <span class="text-xs text-zinc-500">Priorität</span>
-                    <select wire:model.live="priority"
-                            class="h-7 text-sm rounded-md border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-2"
-                            {{ $canModifyFeedback ? '' : 'disabled' }}>
+                    <select
+                        wire:model.live="priority"
+                        class="h-7 text-sm rounded-md border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-2
+                               hover:bg-zinc-50 dark:hover:bg-zinc-800 cursor-pointer
+                               {{ $canModifyFeedback ? '' : 'opacity-50 cursor-not-allowed' }}"
+                        {{ $canModifyFeedback ? '' : 'disabled' }}
+                    >
                         @foreach(\App\Models\Feedback::PRIORITIES as $p)
                             <option value="{{ $p }}">{{ $prioDe[$p] ?? ucfirst($p) }}</option>
                         @endforeach
@@ -99,27 +110,35 @@
 
                 <div class="flex-1"></div>
 
-                <div class="flex items-center gap-2">
+                {{-- Only show "Änderungen speichern" when something changed --}}
+                @if($metaDirty)
                     <button type="button"
-                            class="text-xs px-2 py-1 rounded-md border border-zinc-300 dark:border-zinc-700 {{ $canModifyFeedback ? '' : 'opacity-60 cursor-not-allowed' }}"
-                            wire:click="saveMeta" {{ $canModifyFeedback ? '' : 'disabled' }}>
+                            class="text-xs px-2 py-1 rounded-md border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900
+                                   hover:bg-zinc-100 dark:hover:bg-zinc-800 cursor-pointer"
+                            wire:click="saveMeta">
                         Änderungen speichern
                     </button>
+                @endif
 
-                    @if(is_null($feedback->deleted_at))
+                {{-- Delete / Restore (owner only) --}}
+                @if(is_null($feedback->deleted_at))
+                    @if($canModifyFeedback)
                         <button type="button"
-                                class="text-xs px-2 py-1 rounded-md bg-rose-600 text-white hover:brightness-95 {{ $canModifyFeedback ? '' : 'opacity-60 cursor-not-allowed' }}"
-                                wire:click="deleteFeedback" {{ $canModifyFeedback ? '' : 'disabled' }}>
+                                class="text-xs px-2 py-1 rounded-md bg-rose-600 text-white hover:bg-rose-700 cursor-pointer"
+                                wire:click="askDelete">
                             Löschen
                         </button>
-                    @else
+                    @endif
+                @else
+                    @if($feedback->user_id === auth()->id())
                         <button type="button"
-                                class="text-xs px-2 py-1 rounded-md border border-zinc-300 dark:border-zinc-700 {{ ($feedback->user_id === auth()->id()) ? '' : 'opacity-60 cursor-not-allowed' }}"
-                                wire:click="restoreFeedback" {{ ($feedback->user_id === auth()->id()) ? '' : 'disabled' }}>
+                                class="text-xs px-2 py-1 rounded-md border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900
+                                       hover:bg-zinc-100 dark:hover:bg-zinc-800 cursor-pointer"
+                                wire:click="restoreFeedback">
                             Wiederherstellen
                         </button>
                     @endif
-                </div>
+                @endif
             </div>
 
             {{-- Title/Message view or editor --}}
@@ -178,7 +197,7 @@
                     <div class="flex flex-wrap gap-1">
                         @foreach($tagSuggestions as $sug)
                             <button type="button"
-                                    class="text-xs rounded-md px-2 py-1 bg-zinc-100 hover:bg-zinc-200 dark:bg-zinc-800 dark:hover:bg-zinc-700"
+                                    class="text-xs rounded-md px-2 py-1 bg-zinc-100 hover:bg-zinc-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 cursor-pointer"
                                     wire:click="addTag('{{ $sug }}')">
                                 #{{ $sug }}
                             </button>
@@ -250,8 +269,8 @@
 
                 <div class="flex items-center gap-2 justify-end">
                     <button type="button"
-                            class="text-sm rounded-md px-3 py-1.5 bg-blue-600 text-white hover:brightness-95 {{ $canInteract ? '' : 'opacity-60 cursor-not-allowed' }}"
-                            wire:click="send" {{ $canInteract ? '' : 'disabled' }}>
+                            class="text-sm rounded-md px-3 py-1.5 bg-blue-600 text-white hover:bg-blue-700 cursor-pointer"
+                            wire:click="send">
                         Senden
                     </button>
                 </div>
@@ -270,34 +289,83 @@
         </div>
     </div>
 
-    {{-- ===== Flux modal fed by Alpine (no Blade inside the <flux:modal>) ===== --}}
-<div
-  x-data="{
-      open:false, title:'', html:'',
-  }"
-  x-init="
-    $watch(() => $wire.historyOpen, v => open = v);
-    $watch(() => $wire.historyTitle, v => title = v);
-    $watch(() => $wire.historyHtml, v => html = v);
-  "
->
-    <flux:modal x-bind:open="open">
-        <div class="p-4">
-            <h3 class="text-base font-semibold mb-2" x-text="title"></h3>
-            <div class="text-sm space-y-2" x-html="html"></div>
-            <div class="mt-4 flex justify-end">
-                <button type="button"
-                        class="text-xs px-3 py-1.5 rounded-md border border-zinc-300 dark:border-zinc-700"
-                        @click="$wire.closeHistory()">
-                    Schließen
-                </button>
-            </div>
+    {{-- ===== Flux Modals (no Blade loops/@if inside) ===== --}}
+
+{{-- History modal: content fed via Alpine from Livewire props to avoid Blade inside Flux --}}
+<flux:modal wire:model.self="showHistoryModal" class="md:w-96">
+    <div class="space-y-4 p-4"
+         x-data="{ t: '', html: '' }"
+         x-init="
+            $watch(() => $wire.historyTitle, v => t = v);
+            $watch(() => $wire.historyHtml,  v => html = v);
+            t = $wire.historyTitle; html = $wire.historyHtml;
+         ">
+        <div>
+            <h3 class="text-base font-semibold" x-text="t"></h3>
         </div>
-    </flux:modal>
+        <div class="text-sm space-y-2" x-html="html"></div>
+        <div class="flex">
+            <div class="flex-1"></div>
+            <button
+                type="button"
+                class="text-xs px-3 py-1.5 rounded-md border border-zinc-300 dark:border-zinc-700 hover:bg-zinc-100 dark:hover:bg-zinc-800 cursor-pointer"
+                wire:click="closeHistory"
+            >Schließen</button>
+        </div>
+    </div>
+</flux:modal>
+
+{{-- Close warning modal when selecting "closed" --}}
+<flux:modal wire:model.self="showCloseModal" class="md:w-96" :dismissible="false">
+    <div class="space-y-6 p-4">
+        <div>
+            <h3 class="text-base font-semibold">Ticket abschließen?</h3>
+            <p class="mt-1 text-sm text-zinc-600 dark:text-zinc-300">
+                Wenn der Status auf <strong>Abgeschlossen</strong> gesetzt wird, sind weitere Änderungen, Kommentare und Reaktionen nicht mehr möglich.
+            </p>
+        </div>
+        <div class="flex">
+            <div class="flex-1"></div>
+            <button type="button"
+                    class="text-xs px-3 py-1.5 rounded-md border border-zinc-300 dark:border-zinc-700 mr-2 hover:bg-zinc-100 dark:hover:bg-zinc-800 cursor-pointer"
+                    wire:click="cancelCloseSelection">
+                Abbrechen
+            </button>
+            <button type="button"
+                    class="text-xs px-3 py-1.5 rounded-md bg-blue-600 text-white hover:bg-blue-700 cursor-pointer"
+                    wire:click="confirmCloseInfo">
+                Verstanden
+            </button>
+        </div>
+    </div>
+</flux:modal>
+
+{{-- Delete confirmation modal --}}
+<flux:modal wire:model.self="showDeleteConfirm" class="md:w-96">
+    <div class="space-y-6 p-4">
+        <div>
+            <h3 class="text-base font-semibold">Feedback wirklich löschen?</h3>
+            <p class="mt-1 text-sm text-zinc-600 dark:text-zinc-300">
+                Das Feedback wird <strong>archiviert (Soft Delete)</strong>. Du kannst es später wiederherstellen.
+            </p>
+        </div>
+        <div class="flex">
+            <div class="flex-1"></div>
+            <button type="button"
+                    class="text-xs px-3 py-1.5 rounded-md border border-zinc-300 dark:border-zinc-700 mr-2 hover:bg-zinc-100 dark:hover:bg-zinc-800 cursor-pointer"
+                    wire:click="cancelDelete">
+                Abbrechen
+            </button>
+            <button type="button"
+                    class="text-xs px-3 py-1.5 rounded-md bg-rose-600 text-white hover:bg-rose-700 cursor-pointer"
+                    wire:click="confirmDelete">
+                Löschen
+            </button>
+        </div>
+    </div>
+</flux:modal>
 </div>
 
-
-</div>
 
 
 {{-- Helpers (mentions/Jira) --}}
