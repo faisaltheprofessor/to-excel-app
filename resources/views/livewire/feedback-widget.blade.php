@@ -87,14 +87,10 @@
 
             {{-- Aktionen --}}
             <div class="flex gap-2 justify-end">
-                <flux:button variant="filled" size="sm" kbd="esc" class="w-28"
-                             x-on:click="$flux.popover.close()">
-                    Abbrechen
-                </flux:button>
-
-                <flux:button size="sm" kbd="⏎" class="w-28"
+                <flux:button size="sm" class="w-28" variant="primary" color="green"
                              wire:click="submit"
                              wire:loading.attr="disabled">
+
                     <span wire:loading.remove wire:target="submit">Senden</span>
                     <span wire:loading wire:target="submit">Senden…</span>
                 </flux:button>
