@@ -17,6 +17,10 @@ Route::middleware(['auth'])->group(function () {
     Route::get('/importer/create', Importer::class)->name('importer.create');
     Route::get('/importer/{tree}', TreeEditor::class)->name('importer.edit');
 
+    Route::get('/feedback/kanban', \App\Livewire\FeedbackKanban::class)
+        ->name('feedback.kanban');
+
+
     // Excel download
     Route::get('/download-excel/{filename}', function ($filename) {
         $path = 'temp/' . $filename;

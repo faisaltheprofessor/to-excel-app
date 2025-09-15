@@ -19,6 +19,7 @@
 
     <flux:navbar class="-mb-px max-lg:hidden">
         <flux:navbar.item icon="home" href="/importer" wire:navigate>Home</flux:navbar.item>
+        <flux:navbar.item icon="kanban" href="/feedback/kanban" wire:navigate>Kanban</flux:navbar.item>
 
         <flux:separator vertical variant="subtle" class="my-2"/>
 

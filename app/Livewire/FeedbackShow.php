@@ -596,7 +596,7 @@ class FeedbackShow extends Component
             }
         }
 
-        $this->historyTitle = 'Änderungshistorie (Feedback)';
+        $this->historyTitle = 'Änderungshistorie';
         $this->historyHtml = $buf;
         $this->showHistoryModal = true;
     }
