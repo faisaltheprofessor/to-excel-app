@@ -4,48 +4,51 @@
         <a href="{{ route('importer.index') }}"
            class="text-sm text-zinc-600 dark:text-zinc-300 hover:underline">Zurück</a>
     </div>
+
     <flux:accordion class="p-2 rounded-2xl border border-zinc-200 dark:border-zinc-700">
         <flux:accordion.item open>
             <flux:accordion.heading>Filter</flux:accordion.heading>
             <flux:accordion.content>
                 <div class="grid grid-cols-3 md:grid-cols-6 gap-3">
+                    <flux:input class="w-96" placeholder="Suche…" wire:model.debounce.live="q"/>
 
-                        <flux:input class="w-96" placeholder="Suche…" wire:model.debounce.live="q"/>
+                    <flux:select class="w-56" wire:model.live="type">
+                        <option value="all">Alle Typen</option>
+                        <option value="bug">Fehler</option>
+                        <option value="suggestion">Vorschlag</option>
+                        <option value="question">Feedback</option>
+                    </flux:select>
 
-                        <flux:select class="w-56" wire:model.live="type">
-                            <option value="all">Alle Typen</option>
-                            <option value="bug">Fehler</option>
-                            <option value="suggestion">Vorschlag</option>
-                            <option value="question">Feedback</option>
-                        </flux:select>
+                    <flux:select class="w-56" wire:model.live="status">
+                        <option value="all">Alle Status</option>
+                        <option value="open">Offen</option>
+                        <option value="in_progress">In Arbeit</option>
+                        <option value="in_review">Im Review</option>   {{-- NEW --}}
+                        <option value="in_test">Im Test</option>       {{-- NEW --}}
+                        <option value="resolved">Gelöst</option>
+                        <option value="closed">Geschlossen</option>
+                        <option value="wontfix">Wird nicht behoben</option>
+                    </flux:select>
 
-                        <flux:select class="w-56" wire:model.live="status">
-                            <option value="all">Alle Status</option>
-                            <option value="open">Offen</option>
-                            <option value="in_progress">In Arbeit</option>
-                            <option value="resolved">Gelöst</option>
-                            <option value="closed">Geschlossen</option>
-                            <option value="wontfix">Wird nicht behoben</option>
-                        </flux:select>
+                    <flux:select class="w-56" wire:model.live="priority">
+                        <option value="all">Alle Prioritäten</option>
+                        <option value="low">Niedrig</option>
+                        <option value="normal">Normal</option>
+                        <option value="high">Hoch</option>
+                        <option value="urgent">Dringend</option>
+                    </flux:select>
 
-                        <flux:select class="w-56" wire:model.live="priority">
-                            <option value="all">Alle Prioritäten</option>
-                            <option value="low">Niedrig</option>
-                            <option value="normal">Normal</option>
-                            <option value="high">Hoch</option>
-                            <option value="urgent">Dringend</option>
-                        </flux:select>
-
-                        <flux:select class="w-56" wire:model.live="tag">
-                            <option value="all">Alle Tags</option>
-                            @foreach($allTags as $t)
-                                <option value="{{ $t }}">{{ $t }}</option>
-                            @endforeach
-                        </flux:select>
-                    </div>
+                    <flux:select class="w-56" wire:model.live="tag">
+                        <option value="all">Alle Tags</option>
+                        @foreach($allTags as $t)
+                            <option value="{{ $t }}">{{ $t }}</option>
+                        @endforeach
+                    </flux:select>
+                </div>
             </flux:accordion.content>
         </flux:accordion.item>
     </flux:accordion>
+
     <div class="grid gap-3" style="grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));">
         @forelse($items as $f)
             <a href="{{ route('feedback.show', $f) }}" wire:navigate
@@ -68,11 +71,13 @@
 
                             @php
                                 $statusMap = [
-                                    'open' => 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-200',
+                                    'open'        => 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-200',
                                     'in_progress' => 'bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200',
-                                    'resolved' => 'bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-200',
-                                    'closed' => 'bg-zinc-100 text-zinc-800 dark:bg-zinc-800 dark:text-zinc-200',
-                                    'wontfix' => 'bg-rose-100 text-rose-800 dark:bg-rose-900/40 dark:text-rose-200',
+                                    'in_review'   => 'bg-indigo-100 text-indigo-800 dark:bg-indigo-900/40 dark:text-indigo-200', // NEW
+                                    'in_test'     => 'bg-violet-100 text-violet-800 dark:bg-violet-900/40 dark:text-violet-200', // NEW
+                                    'resolved'    => 'bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-200',
+                                    'closed'      => 'bg-zinc-100 text-zinc-800 dark:bg-zinc-800 dark:text-zinc-200',
+                                    'wontfix'     => 'bg-rose-100 text-rose-800 dark:bg-rose-900/40 dark:text-rose-200',
                                 ];
                                 $prioMap = [
                                     'low'    => 'bg-zinc-100 text-zinc-800 dark:bg-zinc-800 dark:text-zinc-200',
@@ -86,7 +91,13 @@
                             {{-- Status --}}
                             <span class="text-xs rounded px-2 py-0.5 {{ $statusMap[$f->status] ?? 'bg-zinc-100' }}">
                                 {{ [
-                                    'open'=>'Offen','in_progress'=>'In Arbeit','resolved'=>'Gelöst','closed'=>'Geschlossen','wontfix'=>'Wird nicht behoben'
+                                    'open'=>'Offen',
+                                    'in_progress'=>'In Arbeit',
+                                    'in_review'=>'Im Review',   // NEW
+                                    'in_test'=>'Im Test',       // NEW
+                                    'resolved'=>'Gelöst',
+                                    'closed'=>'Geschlossen',
+                                    'wontfix'=>'Wird nicht behoben'
                                 ][$f->status] ?? $f->status }}
                             </span>
 
@@ -96,8 +107,7 @@
                             </span>
 
                             {{-- Autor + Zeit --}}
-                            <span
-                                class="text-xs text-zinc-600 dark:text-zinc-300">{{ $f->user?->name ?? 'Anonym' }}</span>
+                            <span class="text-xs text-zinc-600 dark:text-zinc-300">{{ $f->user?->name ?? 'Anonym' }}</span>
                             <span class="text-xs text-zinc-500">{{ $f->created_at->format('d.m.Y H:i') }}</span>
                         </div>
 

@@ -3,9 +3,11 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\SoftDeletes;
 
 class FeedbackReaction extends Model
 {
+    use SoftDeletes;
     protected $fillable = ['feedback_id','comment_id','user_id','emoji'];
 
     public function feedback() { return $this->belongsTo(Feedback::class); }
