@@ -21,11 +21,12 @@ class FeedbackShow extends Component
     public string $reply = '';
     public ?int $replyTo = null;
 
-    // meta
+    // meta (now: status & priority & assignee editable by everyone until closed/deleted)
     public string $status = 'open';
-    public array $tags = [];
     public string $priority = 'normal';
+    public ?int $assigneeId = null;
 
+    public array $tags = [];
     public string $tagInput = '';
 
     // reactions
@@ -38,13 +39,17 @@ class FeedbackShow extends Component
     public bool $mentionOpen = false;
 
     // permissions
-    public bool $canModifyFeedback = false; // owner + not closed + not deleted
-    public bool $canInteract = true;  // not closed + not deleted
-    public bool $canEditStatus = false; // anyone until closed/deleted
+    public bool $canModifyFeedback = false; // owner + not closed + not deleted (title/message/tags/delete)
+    public bool $canInteract = true;  // not closed + not deleted (comments/reactions)
+    public bool $canEditStatus = false; // everyone until closed/deleted
+    public bool $canEditPriority = false; // everyone until closed/deleted
+    public bool $canEditAssignee = false; // everyone until closed/deleted
 
     // meta-dirty handling
     public bool $metaDirty = false;
     public string $previousStatus = 'open';
+    public ?int $previousAssigneeId = null;
+    public string $previousPriority = 'normal';
 
     // inline edit: feedback (owner only)
     public bool $editingFeedback = false;
@@ -64,23 +69,45 @@ class FeedbackShow extends Component
     public string $historyTitle = '';
     public string $historyHtml = '';
 
-    public bool $showDeleteConfirm = false;
-
     // close-warning modal (wire:model)
     public bool $showCloseModal = false;
+
+    // delete confirm modal (wire:model)
+    public bool $showDeleteConfirm = false;
+
+    // for assignment dropdown
+    public array $assignableUsers = []; // [ ['id'=>..., 'name'=>...], ... ]
 
     public function mount(Feedback $feedback): void
     {
         $this->feedback = $feedback->fresh();
         $this->status = $this->feedback->status ?? 'open';
-        $this->tags = $this->feedback->tags ?? ['UI Improvement'];
         $this->priority = $this->feedback->priority ?? 'normal';
+        $this->assigneeId = $this->feedback->assigned_to_id;
+
+        $this->tags = $this->feedback->tags ?? ['UI Improvement'];
 
         $this->previousStatus = $this->status;
+        $this->previousPriority = $this->priority;
+        $this->previousAssigneeId = $this->assigneeId;
 
         $this->recomputePermissions();
         $this->computeEditedFlags();
+        $this->assignableUsers = User::query()->orderBy('name')->get(['id', 'name'])->map(fn($u) => ['id' => $u->id, 'name' => $u->name])->all();
         $this->metaDirty = $this->isMetaDirty();
+    }
+
+    public function hydrate(): void
+    {
+        if ($this->feedback?->id) {
+            $this->feedback = Feedback::withTrashed()->findOrFail($this->feedback->id);
+            // keep UI in sync after server-side changes
+            $this->status = $this->feedback->status ?? $this->status;
+            $this->priority = $this->feedback->priority ?? $this->priority;
+            $this->assigneeId = $this->feedback->assigned_to_id;
+            $this->recomputePermissions();
+            $this->metaDirty = $this->isMetaDirty();
+        }
     }
 
     private function recomputePermissions(): void
@@ -90,9 +117,13 @@ class FeedbackShow extends Component
         $isClosed = ($this->feedback->status === 'closed'); // "abgeschlossen"
         $isDeleted = !is_null($this->feedback->deleted_at ?? null);
 
-        $this->canModifyFeedback = $isOwner && !$isClosed && !$isDeleted;
+        $this->canModifyFeedback = $isOwner && !$isClosed && !$isDeleted; // title/message/tags/delete
         $this->canInteract = !$isClosed && !$isDeleted;
+
+        // NEW: everyone can edit these until closed/deleted
         $this->canEditStatus = !$isClosed && !$isDeleted;
+        $this->canEditPriority = !$isClosed && !$isDeleted;
+        $this->canEditAssignee = !$isClosed && !$isDeleted;
     }
 
     private function computeEditedFlags(): void
@@ -110,8 +141,9 @@ class FeedbackShow extends Component
     private function isMetaDirty(): bool
     {
         $dirtyStatus = ($this->status !== ($this->feedback->status ?? 'open'));
-        $dirtyPriority = $this->canModifyFeedback && ($this->priority !== ($this->feedback->priority ?? 'normal'));
-        return $dirtyStatus || $dirtyPriority;
+        $dirtyPriority = ($this->priority !== ($this->feedback->priority ?? 'normal'));
+        $dirtyAssignee = ($this->assigneeId !== ($this->feedback->assigned_to_id ?? null));
+        return $dirtyStatus || $dirtyPriority || $dirtyAssignee;
     }
 
     // ----- Comments & mentions -----
@@ -193,16 +225,13 @@ class FeedbackShow extends Component
             ->where('emoji', $emoji)
             ->first();
 
-        if ($existing) {
-            $existing->delete();
-        } else {
-            FeedbackReaction::create([
-                'feedback_id' => $this->feedback->id,
-                'comment_id' => $commentId,
-                'user_id' => $userId,
-                'emoji' => $emoji,
-            ]);
-        }
+        if ($existing) $existing->delete();
+        else FeedbackReaction::create([
+            'feedback_id' => $this->feedback->id,
+            'comment_id' => $commentId,
+            'user_id' => $userId,
+            'emoji' => $emoji,
+        ]);
 
         $this->dispatch('$refresh');
     }
@@ -225,7 +254,7 @@ class FeedbackShow extends Component
         ];
     }
 
-    // ----- Tags & Meta -----
+    // ----- Tags (owner only) -----
 
     protected function persistTags(): void
     {
@@ -243,6 +272,7 @@ class FeedbackShow extends Component
                 'snapshot' => [
                     'status' => $this->feedback->status,
                     'priority' => $this->feedback->priority,
+                    'assigned_to_id' => $this->feedback->assigned_to_id,
                     'tags' => $clean,
                 ],
             ]);
@@ -275,23 +305,31 @@ class FeedbackShow extends Component
         $this->persistTags();
     }
 
-    // react to select changes to update dirty flag + close warning
+    // ----- Meta selects (status/priority/assignee) -----
+
     public function updatedStatus(string $value): void
     {
         if (!$this->canEditStatus) {
             $this->status = $this->feedback->status ?? 'open';
             return;
         }
-        if ($value === 'closed') {
-            $this->showCloseModal = true;
-        }
+        if ($value === 'closed') $this->showCloseModal = true;
         $this->metaDirty = $this->isMetaDirty();
     }
 
     public function updatedPriority(string $value): void
     {
-        if (!$this->canModifyFeedback) {
+        if (!$this->canEditPriority) {
             $this->priority = $this->feedback->priority ?? 'normal';
+            return;
+        }
+        $this->metaDirty = $this->isMetaDirty();
+    }
+
+    public function updatedAssigneeId($value): void
+    {
+        if (!$this->canEditAssignee) {
+            $this->assigneeId = $this->feedback->assigned_to_id;
             return;
         }
         $this->metaDirty = $this->isMetaDirty();
@@ -312,60 +350,84 @@ class FeedbackShow extends Component
 
     public function saveMeta(): void
     {
-        // lock if already closed or deleted
-        if ($this->feedback->status === 'closed' || !is_null($this->feedback->deleted_at ?? null)) {
+        // hard locks
+        if ($this->feedback->status === 'closed' || !is_null($this->feedback->deleted_at)) {
+            logger()->warning('saveMeta blocked (closed/deleted)', ['id' => $this->feedback->id]);
             return;
         }
 
-        $newStatus = in_array($this->status, \App\Models\Feedback::STATUSES, true)
-            ? $this->status
-            : ($this->feedback->status ?? 'open');
+        // normalize inputs (all users allowed until closed/deleted)
+        $newStatus = in_array($this->status, \App\Models\Feedback::STATUSES, true) ? $this->status : ($this->feedback->status ?? 'open');
+        $newPriority = in_array($this->priority, \App\Models\Feedback::PRIORITIES, true) ? $this->priority : ($this->feedback->priority ?? 'normal');
+        $newAssignee = $this->assigneeId ? (int)$this->assigneeId : null;
 
-        $newPrio = in_array($this->priority, \App\Models\Feedback::PRIORITIES, true)
-            ? $this->priority
-            : ($this->feedback->priority ?? 'normal');
+        // if attempting to close, require confirmation modal
+        if ($newStatus === 'closed' && !$this->showCloseModal) {
+            $this->showCloseModal = true;
+            // do NOT save yet; user must confirm then click save again
+            logger()->info('saveMeta halted for close confirmation', ['id' => $this->feedback->id]);
+            return;
+        }
 
         $changes = [];
 
-        if ($this->canEditStatus && $newStatus !== $this->feedback->status) {
+        if ($newStatus !== $this->feedback->status) {
             $changes['status'] = [$this->feedback->status, $newStatus];
-        } else {
-            $newStatus = $this->feedback->status;
-            $this->status = $newStatus;
+        }
+        if ($newPriority !== $this->feedback->priority) {
+            $changes['priority'] = [$this->feedback->priority, $newPriority];
+        }
+        if ($newAssignee !== ($this->feedback->assigned_to_id ?? null)) {
+            $oldName = optional($this->feedback->assignee)->name ?? null;
+            $newName = optional(\App\Models\User::find($newAssignee))->name ?? null;
+            $changes['assigned_to'] = [$oldName, $newName];
         }
 
-        if ($this->canModifyFeedback && $newPrio !== $this->feedback->priority) {
-            $changes['priority'] = [$this->feedback->priority, $newPrio];
-        } else {
-            $newPrio = $this->feedback->priority;
-            $this->priority = $newPrio;
+        if (empty($changes)) {
+            logger()->info('saveMeta no changes', [
+                'id' => $this->feedback->id,
+                'incoming' => compact('newStatus', 'newPriority', 'newAssignee'),
+                'current' => [
+                    'status' => $this->feedback->status,
+                    'priority' => $this->feedback->priority,
+                    'assigned_to_id' => $this->feedback->assigned_to_id,
+                ],
+            ]);
+            $this->metaDirty = $this->isMetaDirty();
+            return;
         }
 
-        if (!empty($changes)) {
-            $this->feedback->update([
+        try {
+            $this->feedback->forceFill([
                 'status' => $newStatus,
-                'priority' => $newPrio,
-            ]);
+                'priority' => $newPriority,
+                'assigned_to_id' => $newAssignee,
+            ])->save();
 
-            $snap = $this->feedback->only(['status', 'priority', 'tags']);
-
-            FeedbackEdit::create([
+            \App\Models\FeedbackEdit::create([
                 'feedback_id' => $this->feedback->id,
-                'user_id' => Auth::id(),
+                'user_id' => \Auth::id(),
                 'changes' => $changes,
-                'snapshot' => $snap,
+                'snapshot' => $this->feedback->only(['status', 'priority', 'tags', 'assigned_to_id']),
             ]);
-
-            $this->feedbackEdited = true;
-            $this->previousStatus = $this->status;
 
             $this->feedback->refresh();
-            $this->recomputePermissions();
-            $this->dispatch('notify', body: 'Änderungen gespeichert.');
-        }
 
-        $this->metaDirty = $this->isMetaDirty();
+            // sync UI & flags
+            $this->status = $this->feedback->status;
+            $this->priority = $this->feedback->priority;
+            $this->assigneeId = $this->feedback->assigned_to_id;
+            $this->recomputePermissions();
+            $this->metaDirty = $this->isMetaDirty();
+
+            $this->dispatch('notify', body: 'Änderungen gespeichert.');
+            logger()->info('saveMeta OK', ['id' => $this->feedback->id, 'changes' => $changes]);
+        } catch (\Throwable $e) {
+            logger()->error('saveMeta failed', ['id' => $this->feedback->id, 'err' => $e->getMessage()]);
+            $this->dispatch('notify', body: 'Speichern fehlgeschlagen.');
+        }
     }
+
 
     // ----- Feedback inline edit (owner only) -----
 
@@ -411,7 +473,7 @@ class FeedbackShow extends Component
                 'feedback_id' => $this->feedback->id,
                 'user_id' => Auth::id(),
                 'changes' => $changes,
-                'snapshot' => $this->feedback->only(['title', 'message', 'status', 'priority', 'tags']),
+                'snapshot' => $this->feedback->only(['title', 'message', 'status', 'priority', 'tags', 'assigned_to_id']),
             ]);
 
             $this->feedbackEdited = true;
@@ -473,16 +535,38 @@ class FeedbackShow extends Component
 
     // ----- Soft delete / restore (owner only) -----
 
-    public function deleteFeedback(): void
+    public function askDelete(): void
     {
-        if (!$this->canModifyFeedback) return;
-        if (method_exists($this->feedback, 'delete')) {
-            $this->feedback->delete();
-            $this->feedback->refresh();
-            $this->recomputePermissions();
-        }
+        if (!$this->canModifyFeedback || !is_null($this->feedback->deleted_at)) return;
+        $this->showDeleteConfirm = true;
     }
 
+    public function cancelDelete(): void
+    {
+        $this->showDeleteConfirm = false;
+    }
+
+    public function confirmDelete(): void
+    {
+        if (!$this->canModifyFeedback || !is_null($this->feedback->deleted_at)) return;
+
+        $this->feedback->delete();
+        $this->feedback = Feedback::withTrashed()->findOrFail($this->feedback->id);
+
+        $this->recomputePermissions();
+        $this->showDeleteConfirm = false;
+        $this->dispatch('notify', body: 'Feedback gelöscht. Du kannst es wiederherstellen.');
+    }
+
+    public function restoreFeedback(): void
+    {
+        if ($this->feedback->user_id !== Auth::id()) return;
+
+        $this->feedback->restore();
+        $this->feedback = Feedback::withTrashed()->findOrFail($this->feedback->id);
+        $this->recomputePermissions();
+        $this->dispatch('notify', body: 'Feedback wiederhergestellt.');
+    }
 
     // ----- History modal -----
 
@@ -570,63 +654,12 @@ class FeedbackShow extends Component
             'canModifyFeedback' => $this->canModifyFeedback,
             'canInteract' => $this->canInteract,
             'canEditStatus' => $this->canEditStatus,
+            'canEditPriority' => $this->canEditPriority,
+            'canEditAssignee' => $this->canEditAssignee,
             'feedbackEdited' => $this->feedbackEdited,
             'commentEditedMap' => $this->commentEditedMap,
             'metaDirty' => $this->metaDirty,
+            'assignableUsers' => $this->assignableUsers,
         ]);
     }
-
-    public function askDelete(): void
-    {
-        // only owner can delete, and not when already deleted
-        if (!$this->canModifyFeedback || !is_null($this->feedback->deleted_at)) return;
-        $this->showDeleteConfirm = true;
-    }
-
-    public function cancelDelete(): void
-    {
-        $this->showDeleteConfirm = false;
-    }
-
-    public function confirmDelete(): void
-    {
-        if (!$this->canModifyFeedback || !is_null($this->feedback->deleted_at)) return;
-
-        $this->feedback->delete();
-        // re-fetch including trashed so Livewire keeps working
-        $this->feedback = \App\Models\Feedback::withTrashed()->findOrFail($this->feedback->id);
-
-        $this->recomputePermissions();
-        $this->showDeleteConfirm = false;
-        $this->dispatch('notify', body: 'Feedback gelöscht. Du kannst es wiederherstellen.');
-    }
-
-public function restoreFeedback(): void
-{
-    if ($this->feedback->user_id !== \Auth::id()) return;
-
-    $this->feedback->restore();
-
-    // reload with trashed to be safe
-    $this->feedback = \App\Models\Feedback::withTrashed()->findOrFail($this->feedback->id);
-
-    $this->recomputePermissions();
-    $this->dispatch('notify', body: 'Feedback wiederhergestellt.');
-}
-
-    public function hydrate(): void
-    {
-        // Ensure the model is reloaded with trashed rows allowed,
-        // otherwise Livewire request after delete would fail resolution.
-        if ($this->feedback?->id) {
-            $this->feedback = \App\Models\Feedback::withTrashed()->findOrFail($this->feedback->id);
-            // Keep status/priority in sync if needed
-            $this->status = $this->feedback->status ?? $this->status;
-            $this->priority = $this->feedback->priority ?? $this->priority;
-            $this->recomputePermissions();
-            $this->metaDirty = $this->isMetaDirty();
-        }
-    }
-
-
 }

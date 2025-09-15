@@ -71,17 +71,23 @@
                 <span class="px-2 py-0.5 rounded bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200">
                     {{ $prioDe[$priority] ?? ucfirst($priority) }}
                 </span>
+                @if($feedback->assignee)
+                    <span class="px-2 py-0.5 rounded bg-zinc-100 dark:bg-zinc-800">
+                        Zugewiesen: {{ $feedback->assignee->name }}
+                    </span>
+                @endif
                 <span class="text-zinc-400">•</span>
                 <span class="text-zinc-500">{{ $feedback->user?->name ?? 'Anonym' }}</span>
                 <span class="text-zinc-500">{{ $feedback->created_at->format('d.m.Y H:i') }}</span>
             </div>
 
-            {{-- Quick edit bar --}}
-            <div class="flex flex-wrap items-center gap-2 rounded-xl bg-zinc-50 dark:bg-zinc-900/40 p-3">
+            {{-- Quick edit bar (NO forms) --}}
+            <div class="flex flex-wrap items-center gap-3 rounded-xl bg-zinc-50 dark:bg-zinc-900/40 p-3">
+                {{-- Status (defer-bound) --}}
                 <div class="flex items-center gap-2">
                     <span class="text-xs text-zinc-500">Status</span>
                     <select
-                        wire:model.live="status"
+                        wire:model.defer="status"
                         class="h-7 text-sm rounded-md border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-2
                                hover:bg-zinc-50 dark:hover:bg-zinc-800 cursor-pointer
                                {{ $canEditStatus ? '' : 'opacity-50 cursor-not-allowed' }}"
@@ -93,14 +99,15 @@
                     </select>
                 </div>
 
+                {{-- Priorität (defer-bound) --}}
                 <div class="flex items-center gap-2">
                     <span class="text-xs text-zinc-500">Priorität</span>
                     <select
-                        wire:model.live="priority"
+                        wire:model.defer="priority"
                         class="h-7 text-sm rounded-md border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-2
                                hover:bg-zinc-50 dark:hover:bg-zinc-800 cursor-pointer
-                               {{ $canModifyFeedback ? '' : 'opacity-50 cursor-not-allowed' }}"
-                        {{ $canModifyFeedback ? '' : 'disabled' }}
+                               {{ $canEditPriority ? '' : 'opacity-50 cursor-not-allowed' }}"
+                        {{ $canEditPriority ? '' : 'disabled' }}
                     >
                         @foreach(\App\Models\Feedback::PRIORITIES as $p)
                             <option value="{{ $p }}">{{ $prioDe[$p] ?? ucfirst($p) }}</option>
@@ -108,17 +115,38 @@
                     </select>
                 </div>
 
+                {{-- Zugewiesen an (defer-bound) --}}
+                <div class="flex items-center gap-2">
+                    <span class="text-xs text-zinc-500">Zugewiesen an</span>
+                    <select
+                        wire:model.defer="assigneeId"
+                        class="h-7 text-sm rounded-md border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-2
+                               hover:bg-zinc-50 dark:hover:bg-zinc-800 cursor-pointer
+                               {{ $canEditAssignee ? '' : 'opacity-50 cursor-not-allowed' }}"
+                        {{ $canEditAssignee ? '' : 'disabled' }}
+                    >
+                        <option value="">— Niemand —</option>
+                        @foreach($assignableUsers as $u)
+                            <option value="{{ $u['id'] }}">{{ $u['name'] }}</option>
+                        @endforeach
+                    </select>
+                </div>
+
                 <div class="flex-1"></div>
 
-                {{-- Only show "Änderungen speichern" when something changed --}}
-                @if($metaDirty)
+                {{-- Aktualisieren (appears immediately on any local change via wire:dirty) --}}
+                <div
+                    wire:dirty.class.remove="hidden"
+                    wire:target="status,priority,assigneeId"
+                    class="{{ $metaDirty ? '' : 'hidden' }}"
+                >
                     <button type="button"
-                            class="text-xs px-2 py-1 rounded-md border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900
+                            class="text-xs px-3 py-1.5 rounded-md border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900
                                    hover:bg-zinc-100 dark:hover:bg-zinc-800 cursor-pointer"
-                            wire:click="saveMeta">
-                        Änderungen speichern
+                            wire:click.prevent="saveMeta">
+                        Aktualisieren
                     </button>
-                @endif
+                </div>
 
                 {{-- Delete / Restore (owner only) --}}
                 @if(is_null($feedback->deleted_at))
@@ -289,9 +317,9 @@
         </div>
     </div>
 
-    {{-- ===== Flux Modals (no Blade loops/@if inside) ===== --}}
+    {{-- ===== Flux Modals (NO Blade directives inside) ===== --}}
 
-{{-- History modal: content fed via Alpine from Livewire props to avoid Blade inside Flux --}}
+{{-- History modal (fed via Alpine; no Blade control inside modal content) --}}
 <flux:modal wire:model.self="showHistoryModal" class="md:w-96">
     <div class="space-y-4 p-4"
          x-data="{ t: '', html: '' }"
@@ -315,7 +343,7 @@
     </div>
 </flux:modal>
 
-{{-- Close warning modal when selecting "closed" --}}
+{{-- Close warning modal when selecting "closed" (opened by saveMeta if needed) --}}
 <flux:modal wire:model.self="showCloseModal" class="md:w-96" :dismissible="false">
     <div class="space-y-6 p-4">
         <div>
