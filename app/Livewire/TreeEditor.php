@@ -20,7 +20,7 @@ class TreeEditor extends Component
 
     /** Inputs for adding a node */
     public $newNodeName = '';
-    public $newAppName  = '';
+    public $newAppName = '';
 
     /** Currently selected node path (array of indexes) */
     public $selectedNodePath = null;
@@ -36,34 +36,34 @@ class TreeEditor extends Component
 
     /** Inline edit state */
     public $editNodePath = null;   // array<int>|null
-    public $editField    = null;   // "name" | "appName" | null
-    public $editValue    = '';
+    public $editField = null;   // "name" | "appName" | null
+    public $editValue = '';
 
     /** Pending move (confirmation dialog) */
-    public array  $pendingFromPath = [];
-    public array  $pendingToPath   = [];
+    public array $pendingFromPath = [];
+    public array $pendingToPath = [];
     public string $pendingPosition = 'into';
     public string $pendingOldParentName = '';
     public string $pendingNewParentName = '';
-    public bool   $pendingSameParent = false;
+    public bool $pendingSameParent = false;
     public string $pendingWithinParentName = '';
-    public int    $pendingFromIndex = -1;
-    public int    $pendingToIndex   = -1;
+    public int $pendingFromIndex = -1;
+    public int $pendingToIndex = -1;
     public string $pendingOldParentPathStr = '';
     public string $pendingNewParentPathStr = '';
 
     /** Names that must never be deletable */
-    protected array $fixedNames = ['Ltg','Allg','AblgOE','PoEing','SB'];
+    protected array $fixedNames = ['Ltg', 'Allg', 'AblgOE', 'PoEing', 'SB'];
 
     /** Default subtree used when "mit Ablagen" is checked */
     protected $predefinedStructure = [
-        ['name' => 'Ltg',  'children' => []],
+        ['name' => 'Ltg', 'children' => []],
         ['name' => 'Allg', 'children' => []],
         [
             'name' => 'AblgOE',
             'children' => [
                 ['name' => 'PoEing', 'children' => []],
-                ['name' => 'SB',     'children' => []],
+                ['name' => 'SB', 'children' => []],
             ],
         ],
     ];
@@ -72,7 +72,7 @@ class TreeEditor extends Component
     public function mount(TreeModel $tree)
     {
         $this->treeId = $tree->id;
-        $this->title  = $tree->title;
+        $this->title = $tree->title;
 
         $data = $tree->data ?? [];
         $this->tree = $this->unwrapIfWrapped($data);
@@ -89,7 +89,7 @@ class TreeEditor extends Component
 
         $model->update([
             'title' => $this->title !== '' ? $this->title : $model->title,
-            'data'  => $this->tree,
+            'data' => $this->tree,
         ]);
 
         $this->dispatch('autosaved');
@@ -127,36 +127,62 @@ class TreeEditor extends Component
     }
 
     /** Reset validation on edits */
-    public function updatedNewNodeName(): void { $this->resetValidation(); }
-    public function updatedNewAppName(): void  { $this->resetValidation(); }
-    public function updatedEditValue(): void   { $this->resetValidation(); }
+    public function updatedNewNodeName(): void
+    {
+        $this->resetValidation();
+    }
+
+    public function updatedNewAppName(): void
+    {
+        $this->resetValidation();
+    }
+
+    public function updatedEditValue(): void
+    {
+        $this->resetValidation();
+    }
 
     // ================== NODE OPS ==================
 
     /** Add a new node at selected path (or root). Optional predefined sub-structure. */
     public function addNode()
     {
-        $nameInput = $this->translitUmlauts(trim((string)$this->newNodeName));
-        if ($nameInput === '') return;
+            $nameInput = $this->translitUmlauts(trim((string)$this->newNodeName));
+    if ($nameInput === '') return;
+    if ($reason = $this->invalidNameReason($nameInput)) {
+        $this->addError('newNodeName', $reason);
+        return;
+    }
 
-        if ($reason = $this->invalidNameReason($nameInput)) {
-            $this->addError('newNodeName', $reason);
-            return;
+    $appInputRaw = $this->translitUmlauts(trim((string)$this->newAppName));
+    if ($appInputRaw !== '' && ($reason = $this->invalidNameReason($appInputRaw))) {
+        $this->addError('newAppName', $reason);
+        return;
+    }
+
+    $manual = false;
+    if ($appInputRaw !== '') {
+        // user provided appName → normalize leading SB, lock manual
+        $computedAppName = $this->normalizeSbPrefix($appInputRaw);
+        $manual = true;
+    } else {
+        // no appName provided → only normalize if name starts with SB; if changed, lock manual
+        $fromName = $this->normalizeSbPrefix($nameInput);
+        if ($fromName !== $nameInput) {
+            $computedAppName = $fromName; // e.g., SBKasse -> SbKasse
+            $manual = true;               // prevent refresh from turning it into Parent_Sb
+        } else {
+            $computedAppName = $nameInput; // keep old behavior
         }
+    }
 
-        $appInput = $this->translitUmlauts(trim((string)$this->newAppName));
-        if ($appInput !== '' && ($reason = $this->invalidNameReason($appInput))) {
-            $this->addError('newAppName', $reason);
-            return;
-        }
-
-        $newNode = [
-            'name'           => $nameInput,
-            'appName'        => ($appInput !== '') ? $appInput : $nameInput,
-            'appNameManual'  => ($appInput !== ''),
-            'children'       => [],
-            'deletable'      => true,
-        ];
+    $newNode = [
+        'name'           => $nameInput,
+        'appName'        => $computedAppName,
+        'appNameManual'  => $manual,
+        'children'       => [],
+        'deletable'      => true,
+    ];
 
         if ($this->addWithStructure) {
             $parentAtPath = $this->effectiveParentNameForPath($this->selectedNodePath);
@@ -178,7 +204,7 @@ class TreeEditor extends Component
         $this->refreshAppNames($this->tree, null, null);
 
         $this->newNodeName = '';
-               $this->newAppName  = '';
+        $this->newAppName = '';
         $this->addWithStructure = false;
 
         $this->sanitizeDeletionFlags($this->tree);
@@ -230,8 +256,8 @@ class TreeEditor extends Component
         if (!$node) return;
 
         $this->editNodePath = $path;
-        $this->editField    = $field;
-        $this->editValue    = $node[$field] ?? '';
+        $this->editField = $field;
+        $this->editValue = $node[$field] ?? '';
     }
 
     /** Commit inline edit; handles manual flag and cascaded recomputation. */
@@ -245,9 +271,9 @@ class TreeEditor extends Component
             return;
         }
 
-        $before  = $this->getNodeAtPath($this->tree, $this->editNodePath);
+        $before = $this->getNodeAtPath($this->tree, $this->editNodePath);
         $oldName = $before['name'] ?? null;
-        $oldApp  = $before['appName'] ?? null;
+        $oldApp = $before['appName'] ?? null;
         $wasManual = (bool)($before['appNameManual'] ?? false);
 
         $fields = [$this->editField => $val];
@@ -316,12 +342,12 @@ class TreeEditor extends Component
         $clean = $this->stripInternal($nodes);
 
         return [[
-            'name'=>'.PANKOW','appName'=>'.PANKOW',
+            'name' => '.PANKOW', 'appName' => '.PANKOW',
             'children' => [[
-                'name'=>'ba','appName'=>'ba',
-                'children'=> [[
-                    'name'=>'DigitaleAkte-203','appName'=>'DigitaleAkte-203',
-                    'children'=>$clean
+                'name' => 'ba', 'appName' => 'ba',
+                'children' => [[
+                    'name' => 'DigitaleAkte-203', 'appName' => 'DigitaleAkte-203',
+                    'children' => $clean
                 ]]
             ]]
         ]];
@@ -333,8 +359,8 @@ class TreeEditor extends Component
         $out = [];
         foreach ($nodes as $n) {
             $out[] = [
-                'name'     => $n['name'] ?? '',
-                'appName'  => $n['appName'] ?? ($n['name'] ?? ''),
+                'name' => $n['name'] ?? '',
+                'appName' => $n['appName'] ?? ($n['name'] ?? ''),
                 'children' => !empty($n['children']) ? $this->stripInternal($n['children']) : [],
             ];
         }
@@ -350,8 +376,8 @@ class TreeEditor extends Component
     public function preparePendingMove($fromPath, $toPath, $position = 'into'): void
     {
         $this->pendingFromPath = is_array($fromPath) ? $fromPath : [];
-        $this->pendingToPath   = is_array($toPath)   ? $toPath   : [];
-        $this->pendingPosition = in_array($position, ['into','before','after'], true) ? $position : 'into';
+        $this->pendingToPath = is_array($toPath) ? $toPath : [];
+        $this->pendingPosition = in_array($position, ['into', 'before', 'after'], true) ? $position : 'into';
 
         $oldParentPath = array_slice($this->pendingFromPath, 0, -1);
         $newParentPath = ($this->pendingPosition === 'into')
@@ -370,9 +396,9 @@ class TreeEditor extends Component
             : '';
 
         $this->pendingFromIndex = -1;
-        $this->pendingToIndex   = -1;
+        $this->pendingToIndex = -1;
 
-        if ($this->pendingSameParent && in_array($this->pendingPosition, ['before','after'], true)) {
+        if ($this->pendingSameParent && in_array($this->pendingPosition, ['before', 'after'], true)) {
             $fromIndex = end($this->pendingFromPath);
             $targetIndexOriginal = end($this->pendingToPath);
             $shift = ($fromIndex < $targetIndexOriginal) ? 1 : 0;
@@ -381,7 +407,7 @@ class TreeEditor extends Component
                 : ($targetIndexOriginal - $shift + 1);
 
             $this->pendingFromIndex = (int)$fromIndex;
-            $this->pendingToIndex   = (int)$newIndex;
+            $this->pendingToIndex = (int)$newIndex;
         }
     }
 
@@ -512,13 +538,13 @@ class TreeEditor extends Component
             $nextEffective = $this->nextEffectiveParent($childName, $effectiveParentName);
 
             $res[] = [
-                'name'           => $childName,
-                'appName'        => $appName,
-                'appNameManual'  => false,
-                'children'       => !empty($it['children'])
+                'name' => $childName,
+                'appName' => $appName,
+                'appNameManual' => false,
+                'children' => !empty($it['children'])
                     ? $this->buildPredefinedChildrenWithParent($it['children'], $nextEffective)
                     : [],
-                'deletable'      => !$this->isFixedName($childName),
+                'deletable' => !$this->isFixedName($childName),
             ];
         }
         return $res;
@@ -758,9 +784,9 @@ class TreeEditor extends Component
         $norm = rtrim($name, " .");
         $upper = mb_strtoupper($norm);
         $reserved = [
-            'CON','PRN','AUX','NUL',
-            'COM1','COM2','COM3','COM4','COM5','COM6','COM7','COM8','COM9',
-            'LPT1','LPT2','LPT3','LPT4','LPT5','LPT6','LPT7','LPT8','LPT9',
+            'CON', 'PRN', 'AUX', 'NUL',
+            'COM1', 'COM2', 'COM3', 'COM4', 'COM5', 'COM6', 'COM7', 'COM8', 'COM9',
+            'LPT1', 'LPT2', 'LPT3', 'LPT4', 'LPT5', 'LPT6', 'LPT7', 'LPT8', 'LPT9',
         ];
         if (in_array($upper, $reserved, true)) {
             return 'Name ist unter Windows reserviert (z. B. CON, PRN, AUX, NUL, COM1–COM9, LPT1–LPT9).';
@@ -784,16 +810,16 @@ class TreeEditor extends Component
     protected function abbr(string $name): string
     {
         $map = [
-            'Ltg'    => 'Ltg',
-            'Allg'   => 'Allg',
+            'Ltg' => 'Ltg',
+            'Allg' => 'Allg',
             'PoEing' => 'Pe',
-            'SB'     => 'Sb',
+            'SB' => 'Sb',
         ];
         if (isset($map[$name])) return $map[$name];
 
         $letters = preg_replace('/[^A-Za-zÄÖÜäöüß]/u', '', $name);
         if ($letters === '') return $name;
-        $first  = mb_strtoupper(mb_substr($letters, 0, 1));
+        $first = mb_strtoupper(mb_substr($letters, 0, 1));
         $second = mb_strtolower(mb_substr($letters, 1, 1));
         return $first . $second;
     }
@@ -820,7 +846,7 @@ class TreeEditor extends Component
             case 'Allg':
                 return 'Allg_' . $effectiveParent;
             case 'AblgOE':
-                return $effectiveParent . '_Ab';
+                return 'Ab_' . $effectiveParent;
             case 'SB':
                 return 'Sb_' . $effectiveParent;       // prefix form
             case 'PoEing':
@@ -896,5 +922,11 @@ class TreeEditor extends Component
     {
         $s = preg_replace('/\s+/u', ' ', $s ?? '');
         return trim($s);
+    }
+
+    protected function normalizeSbPrefix(string $s): string
+    {
+        // Convert only a leading 'SB' → 'Sb' (leave the rest untouched)
+        return preg_replace('/^SB/u', 'Sb', $s);
     }
 }
