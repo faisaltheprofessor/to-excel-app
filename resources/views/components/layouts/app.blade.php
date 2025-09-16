@@ -90,5 +90,76 @@
     @csrf
 </form>
 @fluxScripts
+
+<script>
+document.addEventListener('alpine:init', () => {
+  window.JIRA_SHORTCUTS = window.JIRA_SHORTCUTS || {
+    '/': '✅',
+    'x': '❌',
+    'y': '👍',
+    'tick': '✅',
+    'check': '✅',
+    'yes': '✅',
+    'no': '❌',
+  };
+
+  // Universal, model-agnostic helper
+  Alpine.data('jiraBox', () => ({
+    _target: null,
+    init() {
+      // use the element itself if it's a text input/textarea,
+      // otherwise the first descendant textarea/input
+      this._target = this.$el.matches('textarea,input')
+        ? this.$el
+        : this.$el.querySelector('textarea, input');
+    },
+    onKeydown(e) {
+      if (![' ', 'Enter', 'Tab'].includes(e.key)) return;
+
+      const el = this._target || e.target;
+      if (!el) return;
+
+      const tag = el.tagName;
+      const type = (el.type || 'text').toLowerCase();
+      const isTextual = tag === 'TEXTAREA' || (tag === 'INPUT' && ['text','search','url','tel'].includes(type));
+      if (!isTextual) return;
+
+      const pos = el.selectionStart ?? 0;
+      const val = el.value ?? '';
+      const leftRaw = val.slice(0, pos);
+      const right   = val.slice(pos);
+
+      const ws = leftRaw.match(/[ \t\r\n]+$/);
+      const trailing = ws ? ws[0] : '';
+      const left = trailing ? leftRaw.slice(0, leftRaw.length - trailing.length) : leftRaw;
+
+      const m = left.match(/\(([^\s()]{1,10})\)$/i);
+      if (!m) return;
+
+      const key = (m[1] || '').toLowerCase();
+      const emoji = (window.JIRA_SHORTCUTS || {})[key];
+      if (!emoji) return;
+
+      e.preventDefault();
+
+      const trigger = e.key === ' ' ? ' ' : (e.key === 'Enter' ? '\n' : '\t');
+      const newLeft = left.slice(0, left.length - m[0].length) + emoji;
+      const newVal  = newLeft + trailing + trigger + right;
+
+      el.value = newVal;
+
+      // Let Livewire (or vanilla forms) react naturally
+      el.dispatchEvent(new Event('input',  { bubbles: true }));
+      el.dispatchEvent(new Event('change', { bubbles: true }));
+
+      const newPos = (newLeft + trailing + trigger).length;
+      try { el.setSelectionRange(newPos, newPos); } catch (_) {}
+    }
+  }));
+});
+</script>
+
+
+
 </body>
 </html>

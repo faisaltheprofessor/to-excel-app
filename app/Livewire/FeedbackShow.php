@@ -25,13 +25,16 @@ class FeedbackShow extends Component
     public string $reply = '';
     public ?int $replyTo = null;
 
-    /** new comment uploads */
-    #[Validate(['replyUploads.*' => 'file|mimes:jpg,jpeg,png,webp,gif,mp4,mov,avi,webm,pdf,doc,docx,xls,xlsx'])]
+    /** Reply attachments */
+    /** @var array<\Livewire\Features\SupportFileUploads\TemporaryUploadedFile> */
     public array $replyUploads = [];
+
+    public string $commentSort = 'newest'; // 'newest' | 'oldest'
 
     // meta
     public string $status = 'open';
     public string $priority = 'medium'; // low|medium|high|critical
+    public string $type = 'bug';        // bug|suggestion
     public ?int $assigneeId = null;
 
     public array $tags = [];
@@ -52,26 +55,29 @@ class FeedbackShow extends Component
     public bool $canEditStatus = false;
     public bool $canEditPriority = false;
     public bool $canEditAssignee = false;
+    public bool $canEditType = false;
 
     // meta-dirty
     public bool $metaDirty = false;
     public string $previousStatus = 'open';
     public ?int $previousAssigneeId = null;
     public string $previousPriority = 'medium';
+    public string $previousType = 'bug';
 
     // inline edit: feedback
     public bool $editingFeedback = false;
     public string $editTitle = '';
     public string $editMessage = '';
 
+    /** Ticket edit: add new files & remove existing ones */
+    public array $editUploads = [];                 // new uploads (TemporaryUploadedFile[])
+    public array $removeFeedbackAttachmentIdx = []; // int[] of existing attachments to remove
+
     // inline edit: comment
     public ?int $editingCommentId = null;
     public string $editingCommentBody = '';
-
-    /** editing comment attachments (existing + new) */
-    public array $editingCommentExisting = []; // array of arrays: ['path','url','mime','name','size']
-    #[Validate(['editingCommentNewUploads.*' => 'file|mimes:jpg,jpeg,png,webp,gif,mp4,mov,avi,webm,pdf,doc,docx,xls,xlsx'])]
-    public array $editingCommentNewUploads = [];
+    public array $editingCommentUploads = [];       // new uploads during comment edit
+    public array $removeCommentAttachmentIdx = [];  // int[] to remove from existing
 
     // history indicators
     public bool $feedbackEdited = false;
@@ -94,29 +100,35 @@ class FeedbackShow extends Component
     public function mount(Feedback $feedback): void
     {
         $this->feedback = $feedback->fresh();
-        $this->status = $this->feedback->status ?? 'open';
-        $this->priority = $this->feedback->priority ?? 'medium';
-        $this->assigneeId = $this->feedback->assigned_to_id;
 
-        $this->tags = $this->feedback->tags ?? [];
+        $this->status      = $this->feedback->status ?? 'open';
+        $this->priority    = $this->feedback->priority ?? 'medium';
+        $this->type        = $this->feedback->type ?? 'bug';
+        $this->assigneeId  = $this->feedback->assigned_to_id;
+        $this->tags        = $this->feedback->tags ?? [];
 
-        $this->previousStatus = $this->status;
-        $this->previousPriority = $this->priority;
+        $this->previousStatus     = $this->status;
+        $this->previousPriority   = $this->priority;
+        $this->previousType       = $this->type;
         $this->previousAssigneeId = $this->assigneeId;
 
         $this->recomputePermissions();
         $this->computeEditedFlags();
-        $this->assignableUsers = User::query()->orderBy('name')->get(['id','name'])
-            ->map(fn($u)=>['id'=>$u->id,'name'=>$u->name])->all();
+        $this->assignableUsers = User::query()
+            ->orderBy('name')
+            ->get(['id','name'])
+            ->map(fn($u)=>['id'=>$u->id,'name'=>$u->name])
+            ->all();
         $this->metaDirty = $this->isMetaDirty();
     }
 
     public function hydrate(): void
     {
         if ($this->feedback?->id) {
-            $this->feedback = Feedback::withTrashed()->findOrFail($this->feedback->id);
-            $this->status = $this->feedback->status ?? $this->status;
-            $this->priority = $this->feedback->priority ?? $this->priority;
+            $this->feedback   = Feedback::withTrashed()->findOrFail($this->feedback->id);
+            $this->status     = $this->feedback->status ?? $this->status;
+            $this->priority   = $this->feedback->priority ?? $this->priority;
+            $this->type       = $this->feedback->type ?? $this->type;
             $this->assigneeId = $this->feedback->assigned_to_id;
             $this->recomputePermissions();
             $this->metaDirty = $this->isMetaDirty();
@@ -125,84 +137,88 @@ class FeedbackShow extends Component
 
     private function recomputePermissions(): void
     {
-        $uid = Auth::id();
-        $isOwner = ($this->feedback->user_id === $uid);
-        $isClosed = ($this->feedback->status === 'closed');
+        $uid       = Auth::id();
+        $isOwner   = ($this->feedback->user_id === $uid);
+        $isClosed  = ($this->feedback->status === 'closed');
         $isDeleted = !is_null($this->feedback->deleted_at ?? null);
 
         $this->canModifyFeedback = $isOwner && !$isClosed && !$isDeleted;
-        $this->canInteract = !$isClosed && !$isDeleted;
-        $this->canEditStatus = !$isClosed && !$isDeleted;
-        $this->canEditPriority = !$isClosed && !$isDeleted;
-        $this->canEditAssignee = !$isClosed && !$isDeleted;
+        $this->canInteract       = !$isClosed && !$isDeleted;
+        $this->canEditStatus     = !$isClosed && !$isDeleted;
+        $this->canEditPriority   = !$isClosed && !$isDeleted;
+        $this->canEditAssignee   = !$isClosed && !$isDeleted;
+        $this->canEditType       = !$isClosed && !$isDeleted;
     }
 
     private function computeEditedFlags(): void
     {
-        $this->feedbackEdited = \App\Models\FeedbackEdit::where('feedback_id', $this->feedback->id)->exists();
+        $this->feedbackEdited = FeedbackEdit::where('feedback_id', $this->feedback->id)->exists();
         $commentIds = $this->feedback->comments()->pluck('id');
-        $this->commentEditedMap = \App\Models\FeedbackCommentEdit::whereIn('comment_id', $commentIds)
+        $this->commentEditedMap = FeedbackCommentEdit::whereIn('comment_id', $commentIds)
             ->get()->groupBy('comment_id')->map(fn()=>true)->toArray();
     }
 
     private function isMetaDirty(): bool
     {
-        $dirtyStatus = ($this->status !== ($this->feedback->status ?? 'open'));
+        $dirtyStatus   = ($this->status   !== ($this->feedback->status ?? 'open'));
         $dirtyPriority = ($this->priority !== ($this->feedback->priority ?? 'medium'));
+        $dirtyType     = ($this->type     !== ($this->feedback->type ?? 'bug'));
         $dirtyAssignee = ($this->assigneeId !== ($this->feedback->assigned_to_id ?? null));
-        return $dirtyStatus || $dirtyPriority || $dirtyAssignee;
+        return $dirtyStatus || $dirtyPriority || $dirtyType || $dirtyAssignee;
     }
 
-    // --------- new comment uploads ----------
-    public function updatedReplyUploads(): void
+    // ---------- Upload validation helpers ----------
+    private function validateUploadsArray(array &$files, string $prefixForErrors = 'uploads'): void
     {
-        $this->validateOnly('replyUploads.*');
+        $maxImage  = 10 * 1024 * 1024;  // 10 MB
+        $maxPdf    = 20 * 1024 * 1024;  // 20 MB
+        $maxOffice = 20 * 1024 * 1024;  // 20 MB
+        $maxVideo  = 100 * 1024 * 1024; // 100 MB
 
-        if (count($this->replyUploads) > 5) {
-            $this->addError('replyUploads', 'Maximal 5 Dateien erlaubt.');
-            $this->replyUploads = array_slice($this->replyUploads, 0, 5);
-        }
-
-        $this->validateReplyUploads();
-    }
-
-    private function validateReplyUploads(): void
-    {
-        $maxImage  = 10 * 1024 * 1024;
-        $maxPdf    = 20 * 1024 * 1024;
-        $maxOffice = 20 * 1024 * 1024;
-        $maxVideo  = 100 * 1024 * 1024;
-
-        foreach ($this->replyUploads as $i => $file) {
+        foreach ($files as $i => $file) {
             $mime = $file->getMimeType() ?? '';
             $size = $file->getSize() ?? 0;
+            $ext  = strtolower($file->getClientOriginalExtension() ?? '');
 
             if (str_starts_with($mime, 'image/')) {
-                if ($size > $maxImage) { $this->addError("replyUploads.$i", 'Bild zu groß (max. 10 MB).'); unset($this->replyUploads[$i]); }
+                if ($size > $maxImage) { $this->addError("$prefixForErrors.$i", 'Bild zu groß (max. 10 MB).'); unset($files[$i]); }
             } elseif (str_starts_with($mime, 'video/')) {
-                if ($size > $maxVideo) { $this->addError("replyUploads.$i", 'Video zu groß (max. 100 MB).'); unset($this->replyUploads[$i]); }
-            } elseif ($mime === 'application/pdf') {
-                if ($size > $maxPdf) { $this->addError("replyUploads.$i", 'PDF zu groß (max. 20 MB).'); unset($this->replyUploads[$i]); }
-            } elseif (in_array($mime, [
-                'application/msword',
-                'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-                'application/vnd.ms-excel',
-                'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-            ], true)) {
-                if ($size > $maxOffice) { $this->addError("replyUploads.$i", 'Office-Dokument zu groß (max. 20 MB).'); unset($this->replyUploads[$i]); }
+                if ($size > $maxVideo) { $this->addError("$prefixForErrors.$i", 'Video zu groß (max. 100 MB).'); unset($files[$i]); }
+            } elseif ($mime === 'application/pdf' || $ext === 'pdf') {
+                if ($size > $maxPdf)   { $this->addError("$prefixForErrors.$i", 'PDF zu groß (max. 20 MB).');   unset($files[$i]); }
+            } elseif (in_array($ext, ['doc','docx','xls','xlsx'], true)) {
+                if ($size > $maxOffice){ $this->addError("$prefixForErrors.$i", 'Office-Dokument zu groß (max. 20 MB).'); unset($files[$i]); }
             } else {
-                $ext = strtolower($file->getClientOriginalExtension() ?? '');
-                if (in_array($ext, ['doc','docx','xls','xlsx'], true)) {
-                    if ($size > $maxOffice) { $this->addError("replyUploads.$i", 'Office-Dokument zu groß (max. 20 MB).'); unset($this->replyUploads[$i]); }
-                } elseif ($ext === 'pdf') {
-                    if ($size > $maxPdf) { $this->addError("replyUploads.$i", 'PDF zu groß (max. 20 MB).'); unset($this->replyUploads[$i]); }
-                } else {
-                    $this->addError("replyUploads.$i", 'Dateityp nicht erlaubt.'); unset($this->replyUploads[$i]);
-                }
+                $this->addError("$prefixForErrors.$i", 'Dateityp nicht erlaubt.');
+                unset($files[$i]);
             }
         }
+        $files = array_values($files);
+    }
 
-        $this->replyUploads = array_values($this->replyUploads);
+    private function storeFiles(array $files, string $subdir): array
+    {
+        $out = [];
+        foreach ($files as $file) {
+            $folder = 'feedback/' . now()->format('Y/m/d') . '/' . $subdir;
+            $ext    = $file->getClientOriginalExtension();
+            $name   = uniqid('', true) . '.' . $ext;
+            $path   = $file->storeAs($folder, $name, 'public');
+            $out[]  = [
+                'path' => $path,
+                'url'  => Storage::disk('public')->url($path),
+                'mime' => $file->getMimeType(),
+                'name' => $file->getClientOriginalName(),
+                'size' => $file->getSize(),
+            ];
+        }
+        return $out;
+    }
+
+    // ---------- Comments ----------
+    public function setReplyTo(?int $commentId = null): void
+    {
+        if ($this->canInteract) $this->replyTo = $commentId;
     }
 
     public function removeReplyUpload(int $index): void
@@ -213,51 +229,28 @@ class FeedbackShow extends Component
         }
     }
 
-    // ----- Comments -----
-    public function setReplyTo(?int $commentId = null): void
-    {
-        if ($this->canInteract) {
-            $this->replyTo = $commentId;
-            $this->replyUploads = []; // clear when switching threads
-        }
-    }
-
     public function send(): void
     {
         if (!$this->canInteract) return;
+        $this->validate(); // validates 'reply'
 
-        $this->validate();
-        $this->validateReplyUploads();
+        // Validate attachments
+        $this->validateUploadsArray($this->replyUploads, 'replyUploads');
 
-        $stored = [];
-        foreach ($this->replyUploads as $file) {
-            $folder = 'feedback/' . now()->format('Y/m/d') . '/comments';
-            $ext    = $file->getClientOriginalExtension();
-            $name   = uniqid('', true) . '.' . $ext;
-            $path   = $file->storeAs($folder, $name, 'public');
+        $stored = $this->storeFiles($this->replyUploads, 'comments');
 
-            $stored[] = [
-                'path' => $path,
-                'url'  => Storage::disk('public')->url($path),
-                'mime' => $file->getMimeType(),
-                'name' => $file->getClientOriginalName(),
-                'size' => $file->getSize(),
-            ];
-        }
-
-        FeedbackComment::create([
+        $comment = FeedbackComment::create([
             'feedback_id' => $this->feedback->id,
             'user_id'     => Auth::id(),
             'body'        => $this->reply,
             'parent_id'   => $this->replyTo,
-            'attachments' => $stored,
+            'attachments' => $stored, // requires json column + cast
         ]);
 
-        $this->reply = '';
-        $this->replyTo = null;
+        $this->reply        = '';
+        $this->replyTo      = null;
         $this->replyUploads = [];
 
-        // force fresh data (with attachments)
         $this->dispatch('$refresh');
     }
 
@@ -265,17 +258,21 @@ class FeedbackShow extends Component
     {
         if (!$this->canInteract) return;
         $c = FeedbackComment::where('feedback_id',$this->feedback->id)->where('id',$commentId)->first();
-        if($c && $c->user_id===Auth::id()){ $c->delete(); $this->dispatch('$refresh'); }
+        if ($c && $c->user_id === Auth::id()) {
+            $c->delete();
+            $this->dispatch('$refresh');
+        }
     }
 
     // ----- Mentions -----
     public function updatedMentionQuery(): void
     {
-        $q=trim($this->mentionQuery);
-        if($q===''){ $this->mentionResults=[]; $this->mentionOpen=false; return; }
-        $this->mentionResults=User::where('name','like',$q.'%')->orderBy('name')->limit(8)->get(['id','name','email'])
+        $q = trim($this->mentionQuery);
+        if ($q === '') { $this->mentionResults=[]; $this->mentionOpen=false; return; }
+        $this->mentionResults = User::where('name','like',$q.'%')
+            ->orderBy('name')->limit(8)->get(['id','name','email'])
             ->map(fn($u)=>['id'=>$u->id,'name'=>$u->name,'email'=>$u->email])->all();
-        $this->mentionOpen=!empty($this->mentionResults);
+        $this->mentionOpen = !empty($this->mentionResults);
     }
     public function closeMentions(): void { $this->mentionOpen=false; }
 
@@ -284,7 +281,8 @@ class FeedbackShow extends Component
     {
         if(!$this->canInteract)return;
         $uid=Auth::id();
-        $existing=FeedbackReaction::where('feedback_id',$this->feedback->id)->where('comment_id',$commentId)->where('user_id',$uid)->where('emoji',$emoji)->first();
+        $existing=FeedbackReaction::where('feedback_id',$this->feedback->id)
+            ->where('comment_id',$commentId)->where('user_id',$uid)->where('emoji',$emoji)->first();
         if($existing) $existing->delete();
         else FeedbackReaction::create(['feedback_id'=>$this->feedback->id,'comment_id'=>$commentId,'user_id'=>$uid,'emoji'=>$emoji]);
         $this->dispatch('$refresh');
@@ -292,7 +290,9 @@ class FeedbackShow extends Component
     public function loadReactionUsers(string $emoji,?int $commentId=null): void
     {
         $key=$emoji.'|'.($commentId??'null');
-        $rows=FeedbackReaction::where('feedback_id',$this->feedback->id)->where('comment_id',$commentId)->where('emoji',$emoji)->with('user:id,name')->orderByDesc('id')->limit(24)->get();
+        $rows=FeedbackReaction::where('feedback_id',$this->feedback->id)
+            ->where('comment_id',$commentId)->where('emoji',$emoji)
+            ->with('user:id,name')->orderByDesc('id')->limit(24)->get();
         $this->reactionHover[$key]=['names'=>$rows->map(fn($r)=>optional($r->user)->name??'Unbekannt')->values()->all()];
     }
 
@@ -322,53 +322,145 @@ class FeedbackShow extends Component
     public function updatedStatus(string $v): void { if(!$this->canEditStatus){$this->status=$this->feedback->status??'open';return;} if($v==='closed')$this->showCloseModal=true; $this->metaDirty=$this->isMetaDirty();}
     public function updatedPriority(string $v): void { if(!$this->canEditPriority){$this->priority=$this->feedback->priority??'medium';return;} $this->metaDirty=$this->isMetaDirty();}
     public function updatedAssigneeId($v): void { if(!$this->canEditAssignee){$this->assigneeId=$this->feedback->assigned_to_id;return;} $this->metaDirty=$this->isMetaDirty();}
+    public function updatedType(string $v): void { if(!$this->canEditType){$this->type=$this->feedback->type??'bug';return;} $this->metaDirty=$this->isMetaDirty();}
     public function confirmCloseInfo(): void { $this->showCloseModal=false; $this->metaDirty=$this->isMetaDirty(); }
     public function cancelCloseSelection(): void { $this->status=$this->previousStatus; $this->showCloseModal=false; $this->metaDirty=$this->isMetaDirty(); }
+    public function updatedCommentSort(): void { $this->dispatch('$refresh'); }
 
     public function saveMeta(): void
     {
         if($this->feedback->status==='closed'||!is_null($this->feedback->deleted_at))return;
-        $newStatus=in_array($this->status,\App\Models\Feedback::STATUSES,true)?$this->status:($this->feedback->status??'open');
-        $newPriority=in_array($this->priority,\App\Models\Feedback::PRIORITIES,true)?$this->priority:($this->feedback->priority??'medium');
-        $newAssignee=$this->assigneeId?(int)$this->assigneeId:null;
+
+        $newStatus   = in_array($this->status,\App\Models\Feedback::STATUSES,true) ? $this->status   : ($this->feedback->status ?? 'open');
+        $newPriority = in_array($this->priority,\App\Models\Feedback::PRIORITIES,true) ? $this->priority : ($this->feedback->priority ?? 'medium');
+        $newType     = in_array($this->type, ['bug','suggestion'], true) ? $this->type : ($this->feedback->type ?? 'bug');
+        $newAssignee = $this->assigneeId ? (int)$this->assigneeId : null;
+
         if($newStatus==='closed'&&!$this->showCloseModal){$this->showCloseModal=true;return;}
+
         $changes=[];
         if($newStatus!==$this->feedback->status)$changes['status']=[$this->feedback->status,$newStatus];
         if($newPriority!==$this->feedback->priority)$changes['priority']=[$this->feedback->priority,$newPriority];
+        if($newType!==($this->feedback->type ?? 'bug'))$changes['type']=[$this->feedback->type,$newType];
         if($newAssignee!==($this->feedback->assigned_to_id??null)){
             $oldName=optional($this->feedback->assignee)->name??null;
             $newName=optional(User::find($newAssignee))->name??null;
             $changes['assigned_to']=[$oldName,$newName];
         }
+
         if(!empty($changes)){
-            $this->feedback->forceFill(['status'=>$newStatus,'priority'=>$newPriority,'assigned_to_id'=>$newAssignee])->save();
-            FeedbackEdit::create(['feedback_id'=>$this->feedback->id,'user_id'=>Auth::id(),'changes'=>$changes,'snapshot'=>$this->feedback->only(['status','priority','tags','assigned_to_id'])]);
+            $this->feedback->forceFill([
+                'status' => $newStatus,
+                'priority' => $newPriority,
+                'type' => $newType,
+                'assigned_to_id' => $newAssignee,
+            ])->save();
+
+            FeedbackEdit::create([
+                'feedback_id'=>$this->feedback->id,
+                'user_id'=>Auth::id(),
+                'changes'=>$changes,
+                'snapshot'=>$this->feedback->only(['status','priority','type','tags','assigned_to_id']),
+            ]);
+
             $this->feedback->refresh();
-            $this->status=$this->feedback->status; $this->priority=$this->feedback->priority; $this->assigneeId=$this->feedback->assigned_to_id;
-            $this->recomputePermissions(); $this->metaDirty=$this->isMetaDirty();
+            $this->status     = $this->feedback->status;
+            $this->priority   = $this->feedback->priority;
+            $this->type       = $this->feedback->type;
+            $this->assigneeId = $this->feedback->assigned_to_id;
+
+            $this->recomputePermissions();
+            $this->metaDirty=$this->isMetaDirty();
             $this->dispatch('notify',body:'Änderungen gespeichert.');
         }
     }
 
     // ----- Feedback edit -----
-    public function startEditFeedback(): void { if($this->canModifyFeedback){ $this->editingFeedback=true; $this->editTitle=$this->feedback->title??''; $this->editMessage=$this->feedback->message??''; } }
-    public function cancelEditFeedback(): void { $this->editingFeedback=false; $this->editTitle=''; $this->editMessage=''; }
-    public function saveEditFeedback(): void
+    public function startEditFeedback(): void
     {
-        if(!$this->canModifyFeedback)return;
-        $data=$this->validate(['editTitle'=>'required|string|min:1|max:200','editMessage'=>'required|string|min:1|max:10000']);
-        $changes=[];
-        if($this->feedback->title!==$data['editTitle'])$changes['title']=[$this->feedback->title,$data['editTitle']];
-        if($this->feedback->message!==$data['editMessage'])$changes['message']=[$this->feedback->message,$data['editMessage']];
-        if(!empty($changes)){
-            $this->feedback->update(['title'=>$data['editTitle'],'message'=>$data['editMessage']]);
-            FeedbackEdit::create(['feedback_id'=>$this->feedback->id,'user_id'=>Auth::id(),'changes'=>$changes,'snapshot'=>$this->feedback->only(['title','message','status','priority','tags','assigned_to_id'])]);
-            $this->feedbackEdited=true;
-        }
-        $this->editingFeedback=false; $this->feedback->refresh(); $this->metaDirty=$this->isMetaDirty();
+        if(!$this->canModifyFeedback) return;
+        $this->editingFeedback = true;
+        $this->editTitle   = (string)($this->feedback->title ?? '');
+        $this->editMessage = (string)($this->feedback->message ?? '');
+        $this->editUploads = [];
+        $this->removeFeedbackAttachmentIdx = [];
     }
 
-    // ----- Comment edit (NOW with attachments) -----
+    public function cancelEditFeedback(): void
+    {
+        $this->editingFeedback = false;
+        $this->editTitle = '';
+        $this->editMessage = '';
+        $this->editUploads = [];
+        $this->removeFeedbackAttachmentIdx = [];
+    }
+
+    public function removeExistingFeedbackAttachment(int $idx): void
+    {
+        // we mark it for removal and render UI accordingly
+        $this->removeFeedbackAttachmentIdx[$idx] = true;
+    }
+
+    public function removeEditUpload(int $idx): void
+    {
+        if(isset($this->editUploads[$idx])){
+            unset($this->editUploads[$idx]);
+            $this->editUploads = array_values($this->editUploads);
+        }
+    }
+
+    public function saveEditFeedback(): void
+    {
+        if(!$this->canModifyFeedback) return;
+
+        $data = $this->validate([
+            'editTitle'   => 'required|string|min:1|max:200',
+            'editMessage' => 'required|string|min:1|max:10000',
+        ]);
+
+        // filter out removed existing attachments
+        $existing = is_array($this->feedback->attachments ?? null) ? $this->feedback->attachments : [];
+        $kept = [];
+        foreach ($existing as $i => $row) {
+            if (!isset($this->removeFeedbackAttachmentIdx[$i])) {
+                $kept[] = $row;
+            }
+        }
+
+        // validate + store new uploads
+        $this->validateUploadsArray($this->editUploads, 'editUploads');
+        $storedNew = $this->storeFiles($this->editUploads, 'ticket-edits');
+
+        $finalAttachments = array_values([...$kept, ...$storedNew]);
+
+        $changes = [];
+        if (($this->feedback->title ?? '') !== $data['editTitle'])   $changes['title']   = [$this->feedback->title, $data['editTitle']];
+        if (($this->feedback->message ?? '') !== $data['editMessage']) $changes['message'] = [$this->feedback->message, $data['editMessage']];
+        if (json_encode($existing) !== json_encode($finalAttachments)) $changes['attachments'] = ['count:'.count($existing), 'count:'.count($finalAttachments)];
+
+        if(!empty($changes)){
+            $this->feedback->update([
+                'title'       => $data['editTitle'],
+                'message'     => $data['editMessage'],
+                'attachments' => $finalAttachments,
+            ]);
+
+            FeedbackEdit::create([
+                'feedback_id'=>$this->feedback->id,
+                'user_id'=>Auth::id(),
+                'changes'=>$changes,
+                'snapshot'=>$this->feedback->only(['title','message','status','priority','type','tags','assigned_to_id','attachments']),
+            ]);
+
+            $this->feedbackEdited = true;
+        }
+
+        $this->editingFeedback = false;
+        $this->feedback->refresh();
+        $this->metaDirty = $this->isMetaDirty();
+    }
+
+    // ----- Comment edit -----
     public function startEditComment(int $id): void
     {
         if(!$this->canInteract)return;
@@ -378,74 +470,20 @@ class FeedbackShow extends Component
 
         $this->editingCommentId   = $c->id;
         $this->editingCommentBody = $c->body;
-        $this->editingCommentExisting = is_array($c->attachments ?? null) ? array_values($c->attachments) : [];
-        $this->editingCommentNewUploads = [];
+        $this->editingCommentUploads = [];
+        $this->removeCommentAttachmentIdx = [];
     }
 
-    public function removeEditingExisting(int $index): void
+    public function removeExistingCommentAttachment(int $idx): void
     {
-        if(isset($this->editingCommentExisting[$index])) {
-            unset($this->editingCommentExisting[$index]);
-            $this->editingCommentExisting = array_values($this->editingCommentExisting);
-        }
+        $this->removeCommentAttachmentIdx[$idx] = true;
     }
 
-    public function updatedEditingCommentNewUploads(): void
+    public function removeEditingCommentUpload(int $idx): void
     {
-        $this->validateOnly('editingCommentNewUploads.*');
-
-        if (count($this->editingCommentNewUploads) > 5) {
-            $this->addError('editingCommentNewUploads', 'Maximal 5 Dateien erlaubt.');
-            $this->editingCommentNewUploads = array_slice($this->editingCommentNewUploads, 0, 5);
-        }
-
-        $this->validateEditingNewUploads();
-    }
-
-    private function validateEditingNewUploads(): void
-    {
-        $maxImage  = 10 * 1024 * 1024;
-        $maxPdf    = 20 * 1024 * 1024;
-        $maxOffice = 20 * 1024 * 1024;
-        $maxVideo  = 100 * 1024 * 1024;
-
-        foreach ($this->editingCommentNewUploads as $i => $file) {
-            $mime = $file->getMimeType() ?? '';
-            $size = $file->getSize() ?? 0;
-
-            if (str_starts_with($mime, 'image/')) {
-                if ($size > $maxImage) { $this->addError("editingCommentNewUploads.$i", 'Bild zu groß (max. 10 MB).'); unset($this->editingCommentNewUploads[$i]); }
-            } elseif (str_starts_with($mime, 'video/')) {
-                if ($size > $maxVideo) { $this->addError("editingCommentNewUploads.$i", 'Video zu groß (max. 100 MB).'); unset($this->editingCommentNewUploads[$i]); }
-            } elseif ($mime === 'application/pdf') {
-                if ($size > $maxPdf) { $this->addError("editingCommentNewUploads.$i", 'PDF zu groß (max. 20 MB).'); unset($this->editingCommentNewUploads[$i]); }
-            } elseif (in_array($mime, [
-                'application/msword',
-                'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-                'application/vnd.ms-excel',
-                'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-            ], true)) {
-                if ($size > $maxOffice) { $this->addError("editingCommentNewUploads.$i", 'Office-Dokument zu groß (max. 20 MB).'); unset($this->editingCommentNewUploads[$i]); }
-            } else {
-                $ext = strtolower($file->getClientOriginalExtension() ?? '');
-                if (in_array($ext, ['doc','docx','xls','xlsx'], true)) {
-                    if ($size > $maxOffice) { $this->addError("editingCommentNewUploads.$i", 'Office-Dokument zu groß (max. 20 MB).'); unset($this->editingCommentNewUploads[$i]); }
-                } elseif ($ext === 'pdf') {
-                    if ($size > $maxPdf) { $this->addError("editingCommentNewUploads.$i", 'PDF zu groß (max. 20 MB).'); unset($this->editingCommentNewUploads[$i]); }
-                } else {
-                    $this->addError("editingCommentNewUploads.$i", 'Dateityp nicht erlaubt.'); unset($this->editingCommentNewUploads[$i]);
-                }
-            }
-        }
-
-        $this->editingCommentNewUploads = array_values($this->editingCommentNewUploads);
-    }
-
-    public function removeEditingNewUpload(int $index): void
-    {
-        if(isset($this->editingCommentNewUploads[$index])) {
-            unset($this->editingCommentNewUploads[$index]);
-            $this->editingCommentNewUploads = array_values($this->editingCommentNewUploads);
+        if(isset($this->editingCommentUploads[$idx])){
+            unset($this->editingCommentUploads[$idx]);
+            $this->editingCommentUploads = array_values($this->editingCommentUploads);
         }
     }
 
@@ -453,66 +491,54 @@ class FeedbackShow extends Component
     {
         $this->editingCommentId = null;
         $this->editingCommentBody = '';
-        $this->editingCommentExisting = [];
-        $this->editingCommentNewUploads = [];
+        $this->editingCommentUploads = [];
+        $this->removeCommentAttachmentIdx = [];
     }
 
     public function saveEditComment(): void
     {
         if(!$this->canInteract)return;
 
-        $this->validate(['editingCommentBody'=>'required|string|min:1|max:5000']);
-        $this->validateEditingNewUploads();
-
-        $c=FeedbackComment::find($this->editingCommentId);
-        if(!$c||$c->feedback_id!==$this->feedback->id)return;
-        if($c->user_id!==Auth::id())return;
-
-        // store new uploads and merge
-        $stored = [];
-        foreach ($this->editingCommentNewUploads as $file) {
-            $folder = 'feedback/' . now()->format('Y/m/d') . '/comments';
-            $ext    = $file->getClientOriginalExtension();
-            $name   = uniqid('', true) . '.' . $ext;
-            $path   = $file->storeAs($folder, $name, 'public');
-
-            $stored[] = [
-                'path' => $path,
-                'url'  => Storage::disk('public')->url($path),
-                'mime' => $file->getMimeType(),
-                'name' => $file->getClientOriginalName(),
-                'size' => $file->getSize(),
-            ];
-        }
-
-        $newAttachments = array_values([
-            ...$this->editingCommentExisting,  // kept after removals
-            ...$stored,                        // newly added
+        $this->validate([
+            'editingCommentBody' => 'required|string|min:1|max:5000',
         ]);
 
-        $changedBody = $c->body !== $this->editingCommentBody;
-        $changedAtts = json_encode($c->attachments ?? []) !== json_encode($newAttachments);
+        $c = FeedbackComment::find($this->editingCommentId);
+        if(!$c || $c->feedback_id !== $this->feedback->id) return;
+        if($c->user_id !== Auth::id()) return;
 
-        if ($changedBody || $changedAtts) {
-            if ($changedBody) {
-                FeedbackCommentEdit::create([
-                    'comment_id'=>$c->id,
-                    'user_id'=>Auth::id(),
-                    'old_body'=>$c->body,
-                    'new_body'=>$this->editingCommentBody
-                ]);
+        $existing = is_array($c->attachments ?? null) ? $c->attachments : [];
+        $kept = [];
+        foreach ($existing as $i => $row) {
+            if (!isset($this->removeCommentAttachmentIdx[$i])) {
+                $kept[] = $row;
             }
-            $c->update([
-                'body'        => $this->editingCommentBody,
-                'attachments' => $newAttachments,
-            ]);
-            $this->commentEditedMap[$c->id]=true;
         }
 
-        $this->editingCommentId=null;
-        $this->editingCommentBody='';
-        $this->editingCommentExisting=[];
-        $this->editingCommentNewUploads=[];
+        $this->validateUploadsArray($this->editingCommentUploads, 'editingCommentUploads');
+        $storedNew = $this->storeFiles($this->editingCommentUploads, 'comment-edits');
+        $final = array_values([...$kept, ...$storedNew]);
+
+        if ($c->body !== $this->editingCommentBody) {
+            FeedbackCommentEdit::create([
+                'comment_id' => $c->id,
+                'user_id'    => Auth::id(),
+                'old_body'   => $c->body,
+                'new_body'   => $this->editingCommentBody,
+            ]);
+            $this->commentEditedMap[$c->id] = true;
+        }
+
+        $c->update([
+            'body' => $this->editingCommentBody,
+            'attachments' => $final,
+        ]);
+
+        $this->editingCommentId = null;
+        $this->editingCommentBody = '';
+        $this->editingCommentUploads = [];
+        $this->removeCommentAttachmentIdx = [];
+
         $this->dispatch('$refresh');
     }
 
@@ -530,7 +556,8 @@ class FeedbackShow extends Component
     public function restoreFeedback(): void
     {
         if($this->feedback->user_id!==Auth::id())return;
-        $this->feedback->restore(); $this->feedback=Feedback::withTrashed()->findOrFail($this->feedback->id);
+        $this->feedback->restore();
+        $this->feedback=Feedback::withTrashed()->findOrFail($this->feedback->id);
         $this->recomputePermissions();
         $this->dispatch('notify',body:'Feedback wiederhergestellt.');
     }
@@ -581,23 +608,44 @@ class FeedbackShow extends Component
         $this->historyHtml = '';
     }
 
-    public function render()
-    {
-        $rootComments=$this->feedback->comments()->with(['user','reactions.user:id,name','children.user','children.reactions.user:id,name'])->get();
 
-        return view('livewire.feedback-show',[
-            'rootComments'=>$rootComments,
-            'attachments'=>$this->feedback->attachments ?? [],
-            'tagSuggestions'=>\App\Models\Feedback::TAG_SUGGESTIONS,
-            'canModifyFeedback'=>$this->canModifyFeedback,
-            'canInteract'=>$this->canInteract,
-            'canEditStatus'=>$this->canEditStatus,
-            'canEditPriority'=>$this->canEditPriority,
-            'canEditAssignee'=>$this->canEditAssignee,
-            'feedbackEdited'=>$this->feedbackEdited,
-            'commentEditedMap'=>$this->commentEditedMap,
-            'metaDirty'=>$this->metaDirty,
-            'assignableUsers'=>$this->assignableUsers,
-        ]);
-    }
+
+
+    public function render()
+{
+     $orderDir = $this->commentSort === 'newest' ? 'desc' : 'asc';
+
+    $rootComments = $this->feedback
+        ->comments()
+        ->whereNull('parent_id')
+        ->with([
+            'user',
+            'reactions.user:id,name',
+            'children' => function ($q) {
+                $q->orderBy('id', 'asc')
+                  ->with(['user','reactions.user:id,name']);
+            },
+        ])
+        ->orderBy('id', $orderDir)
+        ->get();
+
+    $attachments = $this->feedback->attachments ?? [];
+
+    return view('livewire.feedback-show',[
+        'rootComments'   => $rootComments,
+        'attachments'    => $attachments,
+        'tagSuggestions' => \App\Models\Feedback::TAG_SUGGESTIONS,
+        'canModifyFeedback' => $this->canModifyFeedback,
+        'canInteract'       => $this->canInteract,
+        'canEditStatus'     => $this->canEditStatus,
+        'canEditPriority'   => $this->canEditPriority,
+        'canEditAssignee'   => $this->canEditAssignee,
+        'canEditType'       => $this->canEditType,
+        'feedbackEdited'    => $this->feedbackEdited,
+        'commentEditedMap'  => $this->commentEditedMap,
+        'metaDirty'         => $this->isMetaDirty(),
+        'assignableUsers'   => $this->assignableUsers,
+    ]);
 }
+}
+

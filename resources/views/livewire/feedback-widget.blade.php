@@ -35,11 +35,11 @@
             @error('priority') <div class="text-sm text-red-600">{{ $message }}</div> @enderror
 
             {{-- Titel --}}
-            <flux:input type="text" class="w-full" wire:model.defer="title" placeholder="Kurzer Titel" />
+            <flux:input type="text" class="w-full" wire:model.defer="title" placeholder="Kurzer Titel" x-data="jiraBox('reply')" x-on:keydown="onKeydown($event)"/>
             @error('title') <div class="mt-1 text-sm text-red-600">{{ $message }}</div> @enderror
 
             {{-- Beschreibung --}}
-            <flux:textarea rows="6" class="w-full" wire:model.defer="message" placeholder="Beschreibung"></flux:textarea>
+            <flux:textarea rows="6" class="w-full" wire:model.defer="message" placeholder="Beschreibung" x-data="jiraBox('reply')" x-on:keydown="onKeydown($event)"></flux:textarea>
             @error('message') <div class="mt-1 text-sm text-red-600">{{ $message }}</div> @enderror
 
             {{-- Datei hinzufügen --}}
