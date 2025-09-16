@@ -26,7 +26,7 @@ class Feedback extends Model
   'assigned_to_id' => 'integer',
 ];
 
-    public const TAG_SUGGESTIONS = ['UI','Performance','Bug','Importer','Excel','Vorschlag'];
+    public const TAG_SUGGESTIONS = ['UI','Performance','Bug','Importer','Excel','Vorschlag', 'Tracking Tool'];
     public const STATUSES   = ['open','in_progress','resolved','in_review', 'closed','wontfix'];
     public const PRIORITIES = ['low','normal','high','urgent'];
 

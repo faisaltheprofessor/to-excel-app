@@ -239,7 +239,7 @@ class FeedbackShow extends Component
 
         $stored = $this->storeFiles($this->replyUploads, 'comments');
 
-        $comment = FeedbackComment::create([
+        FeedbackComment::create([
             'feedback_id' => $this->feedback->id,
             'user_id'     => Auth::id(),
             'body'        => $this->reply,
@@ -296,26 +296,31 @@ class FeedbackShow extends Component
         $this->reactionHover[$key]=['names'=>$rows->map(fn($r)=>optional($r->user)->name??'Unbekannt')->values()->all()];
     }
 
-    // ----- Tags -----
+    // ----- Tags (now allowed for any user while ticket is open) -----
     protected function persistTags(): void
     {
-        if(!$this->canModifyFeedback)return;
-        $clean=array_values(array_unique(array_filter(array_map('trim',$this->tags))));
+        if(!$this->canInteract) return; // allow on any open ticket
+        $clean = array_values(array_unique(array_filter(array_map('trim',$this->tags))));
         $this->feedback->update(['tags'=>$clean]);
-        $this->tags=$clean;
-        $this->metaDirty=$this->isMetaDirty();
+        $this->tags = $clean;
+        $this->metaDirty = $this->isMetaDirty();
     }
+
     public function addTag(?string $t=null): void
     {
-        if(!$this->canModifyFeedback)return;
-        $t=trim($t??$this->tagInput??''); if($t==='')return;
-        $this->tags=array_values(array_unique([...$this->tags,$t]));
-        $this->tagInput=''; $this->persistTags();
+        if(!$this->canInteract) return; // allow on any open ticket
+        $t = trim($t??$this->tagInput??''); if($t==='') return;
+        $this->tags = array_values(array_unique([...$this->tags, $t]));
+        $this->tagInput = '';
+        $this->persistTags();
     }
+
     public function removeTag(int $index): void
     {
-        if(!$this->canModifyFeedback)return;
-        unset($this->tags[$index]); $this->tags=array_values($this->tags); $this->persistTags();
+        if(!$this->canInteract) return; // allow on any open ticket
+        unset($this->tags[$index]);
+        $this->tags = array_values($this->tags);
+        $this->persistTags();
     }
 
     // ----- Meta -----
@@ -608,55 +613,51 @@ class FeedbackShow extends Component
         $this->historyHtml = '';
     }
 
-
-
-
     public function render()
-{
-     $orderDir = $this->commentSort === 'newest' ? 'desc' : 'asc';
+    {
+        $orderDir = $this->commentSort === 'newest' ? 'desc' : 'asc';
 
-    $rootComments = $this->feedback
-        ->comments()
-        ->whereNull('parent_id')
-        ->with([
-            'user',
-            'reactions.user:id,name',
-            'children' => function ($q) {
-                $q->orderBy('id', 'asc')
-                  ->with(['user','reactions.user:id,name']);
-            },
-        ])
-        ->orderBy('id', $orderDir)
-        ->get();
+        $rootComments = $this->feedback
+            ->comments()
+            ->whereNull('parent_id')
+            ->with([
+                'user',
+                'reactions.user:id,name',
+                'children' => function ($q) {
+                    $q->orderBy('id', 'asc')
+                      ->with(['user','reactions.user:id,name']);
+                },
+            ])
+            ->orderBy('id', $orderDir)
+            ->get();
 
-    $attachments = $this->feedback->attachments ?? [];
+        $attachments = $this->feedback->attachments ?? [];
 
-    return view('livewire.feedback-show',[
-        'rootComments'   => $rootComments,
-        'attachments'    => $attachments,
-        'tagSuggestions' => \App\Models\Feedback::TAG_SUGGESTIONS,
-        'canModifyFeedback' => $this->canModifyFeedback,
-        'canInteract'       => $this->canInteract,
-        'canEditStatus'     => $this->canEditStatus,
-        'canEditPriority'   => $this->canEditPriority,
-        'canEditAssignee'   => $this->canEditAssignee,
-        'canEditType'       => $this->canEditType,
-        'feedbackEdited'    => $this->feedbackEdited,
-        'commentEditedMap'  => $this->commentEditedMap,
-        'metaDirty'         => $this->isMetaDirty(),
-        'assignableUsers'   => $this->assignableUsers,
-    ]);
+        return view('livewire.feedback-show',[
+            'rootComments'   => $rootComments,
+            'attachments'    => $attachments,
+            'tagSuggestions' => \App\Models\Feedback::TAG_SUGGESTIONS,
+            'canModifyFeedback' => $this->canModifyFeedback,
+            'canInteract'       => $this->canInteract,
+            'canEditStatus'     => $this->canEditStatus,
+            'canEditPriority'   => $this->canEditPriority,
+            'canEditAssignee'   => $this->canEditAssignee,
+            'canEditType'       => $this->canEditType,
+            'feedbackEdited'    => $this->feedbackEdited,
+            'commentEditedMap'  => $this->commentEditedMap,
+            'metaDirty'         => $this->isMetaDirty(),
+            'assignableUsers'   => $this->assignableUsers,
+        ]);
+    }
+
+    public function searchMentions(string $q = ''): array
+    {
+        return \App\Models\User::query()
+            ->when($q !== '', fn($qq) => $qq->where('name', 'like', $q.'%'))
+            ->orderBy('name')
+            ->limit(8)
+            ->get(['id','name','email'])
+            ->map(fn($u) => ['id'=>$u->id, 'name'=>$u->name, 'email'=>$u->email])
+            ->all();
+    }
 }
-
-public function searchMentions(string $q = ''): array
-{
-    return \App\Models\User::query()
-        ->when($q !== '', fn($qq) => $qq->where('name', 'like', $q.'%'))
-        ->orderBy('name')
-        ->limit(8)
-        ->get(['id','name','email'])
-        ->map(fn($u) => ['id'=>$u->id, 'name'=>$u->name, 'email'=>$u->email])
-        ->all();
-}
-}
-

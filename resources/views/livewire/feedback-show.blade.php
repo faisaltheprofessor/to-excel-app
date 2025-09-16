@@ -18,8 +18,6 @@
     ];
 
     $attachmentsRaw = is_array($attachments ?? null) ? $attachments : [];
-    $tags           = is_array($tags ?? null) ? $tags : [];
-    $tagSuggestions = is_array($tagSuggestions ?? null) ? $tagSuggestions : [];
 
     $attachments = [];
     foreach ($attachmentsRaw as $idx => $item) {
@@ -119,6 +117,61 @@
                 <span class="text-zinc-400">•</span>
                 <span class="text-zinc-500">{{ $feedback->user?->name ?? 'Anonym' }}</span>
                 <span class="text-zinc-500">{{ $feedback->created_at->format('d.m.Y H:i') }}</span>
+            </div>
+
+            {{-- Tags (click to add; disabled if closed/deleted) --}}
+            @php
+                $currentTags = $this->tags ?? [];
+                $suggestions = array_values(array_diff($tagSuggestions ?? [], $currentTags));
+                $tagsEnabled = $canInteract; // open & not deleted
+            @endphp
+
+            <div class="rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white/70 dark:bg-zinc-900/30 p-3">
+                <div class="flex items-center justify-between gap-3 mb-2">
+                    <div class="text-xs font-medium text-zinc-600 dark:text-zinc-300">Tags</div>
+                    @unless($tagsEnabled)
+                        <div class="text-[11px] text-zinc-500">Geschlossen – Tags können nicht geändert werden</div>
+                    @endunless
+                </div>
+
+                {{-- current tags --}}
+                <div class="flex flex-wrap gap-2 mb-3">
+                    @forelse($currentTags as $i => $t)
+                        <span class="inline-flex items-center gap-1 px-2 py-0.5 text-xs rounded-full
+                                     bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-200 border border-zinc-200 dark:border-zinc-700">
+                            <span class="truncate max-w-[10rem]">{{ $t }}</span>
+                            @if($tagsEnabled)
+                                <button type="button"
+                                        class="ml-1 rounded hover:bg-zinc-200 dark:hover:bg-zinc-700 px-1"
+                                        title="Tag entfernen"
+                                        wire:click="removeTag({{ $i }})">✕</button>
+                            @endif
+                        </span>
+                    @empty
+                        <span class="text-xs text-zinc-500">Noch keine Tags</span>
+                    @endforelse
+                </div>
+
+                {{-- suggestions rail (click to add) --}}
+                @if(!empty($suggestions))
+                    <div>
+                        <div class="text-[11px] text-zinc-500 mb-1">Vorschläge</div>
+                        <div class="flex flex-wrap gap-2">
+                            @foreach($suggestions as $s)
+                                <button type="button"
+                                        @if($tagsEnabled)
+                                            wire:click="addTag('{{ addslashes($s) }}')"
+                                        @endif
+                                        class="px-2 py-0.5 text-xs rounded-full border
+                                               {{ $tagsEnabled
+                                                    ? 'border-emerald-300 text-emerald-700 bg-emerald-50 hover:bg-emerald-100 dark:border-emerald-800 dark:text-emerald-200 dark:bg-emerald-900/20 dark:hover:bg-emerald-900/30'
+                                                    : 'border-zinc-300 text-zinc-400 bg-zinc-100 cursor-not-allowed dark:border-zinc-700 dark:text-zinc-500 dark:bg-zinc-800' }}">
+                                    + {{ $s }}
+                                </button>
+                            @endforeach
+                        </div>
+                    </div>
+                @endif
             </div>
 
             {{-- Quick edit bar --}}
@@ -541,73 +594,4 @@
                     @endforeach
                 </div>
             </div>
-        </div>
-    </div>
-
-    {{-- ===== Flux Modals ===== --}}
-    <flux:modal wire:model.self="showHistoryModal" class="md:w-96">
-        <div class="space-y-4 p-4"
-             x-data="{ t: $wire.historyTitle, html: $wire.historyHtml }"
-             x-init="$watch(() => $wire.historyTitle, v => t = v); $watch(() => $wire.historyHtml, v => html = v);">
-            <h3 class="text-base font-semibold" x-text="t"></h3>
-            <div class="text-sm space-y-2" x-html="html"></div>
-            <div class="flex justify-end">
-                <button type="button"
-                        class="text-xs px-3 py-1.5 rounded-md border hover:bg-zinc-100 dark:hover:bg-zinc-800 cursor-pointer"
-                        wire:click="closeHistory">Schließen</button>
-            </div>
-        </div>
-    </flux:modal>
-
-    <flux:modal wire:model.self="showCloseModal" class="md:w-96" :dismissible="false">
-        <div class="space-y-6 p-4">
-            <h3 class="text-base font-semibold">Ticket abschließen?</h3>
-            <p class="mt-1 text-sm text-zinc-600 dark:text-zinc-300">
-                Wenn der Status auf <strong>Abgeschlossen</strong> gesetzt wird, sind weitere Änderungen, Kommentare und Reaktionen nicht mehr möglich.
-            </p>
-            <div class="flex justify-end gap-2">
-                <button type="button"
-                        class="text-xs px-3 py-1.5 rounded-md border hover:bg-zinc-100 dark:hover:bg-zinc-800 cursor-pointer"
-                        wire:click="cancelCloseSelection">Abbrechen</button>
-                <button type="button"
-                        class="text-xs px-3 py-1.5 rounded-md bg-blue-600 text-white hover:bg-blue-700 cursor-pointer"
-                        wire:click="confirmCloseInfo">Verstanden</button>
-            </div>
-        </div>
-    </flux:modal>
-
-    <flux:modal wire:model.self="showDeleteConfirm" class="md:w-96">
-        <div class="space-y-6 p-4">
-            <h3 class="text-base font-semibold">Feedback wirklich löschen?</h3>
-            <p class="mt-1 text-sm text-zinc-600 dark:text-zinc-300">
-                Das Feedback wird <strong>archiviert (Soft Delete)</strong>. Du kannst es später wiederherstellen.
-            </p>
-            <div class="flex justify-end gap-2">
-                <button type="button"
-                        class="text-xs px-3 py-1.5 rounded-md border hover:bg-zinc-100 dark:hover:bg-zinc-800 cursor-pointer"
-                        wire:click="cancelDelete">Abbrechen</button>
-                <button type="button"
-                        class="text-xs px-3 py-1.5 rounded-md bg-rose-600 text-white hover:bg-rose-700 cursor-pointer"
-                        wire:click="confirmDelete">Löschen</button>
-            </div>
-        </div>
-    </flux:modal>
-</div>
-
-{{-- File picker helper used for reply, comment edit, and ticket edit --}}
-<script>
-function filePicker(model) {
-    return {
-        files: [],
-        add(e) {
-            const selected = Array.from(e.target.files || []);
-            for (const f of selected) this.files.push(f);
-            this.sync(); e.target.value = '';
-        },
-        remove(i) { this.files.splice(i, 1); this.sync(); },
-        sync() {
-            this.$wire.uploadMultiple(model, this.files, () => {}, () => {});
-        }
-    };
-}
-</script>
+        </div
