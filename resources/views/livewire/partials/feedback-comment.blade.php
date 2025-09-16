@@ -1,6 +1,7 @@
 @php
     use Illuminate\Support\Facades\Storage;
-    $pad = min(3, $level);
+    /** @var \App\Models\FeedbackComment $comment */
+    $pad  = min(3, $level);
     $atts = is_array($comment->attachments ?? null) ? $comment->attachments : [];
 @endphp
 
@@ -23,9 +24,38 @@
     {{-- body OR editor --}}
     @if($editingCommentId === $comment->id)
         <div class="mt-2 space-y-2" x-data="filePicker('editingCommentUploads')">
-            <textarea rows="3" wire:model.defer="editingCommentBody" x-data="jiraBox('reply')"
-  x-on:keydown="onKeydown($event)"
-                      class="w-full rounded-md border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 p-2"></textarea>
+            {{-- EDIT TEXTAREA + MENTIONS --}}
+            <div class="relative"
+                 x-data="textAssist({ fetchMentions: (q) => $wire.call('searchMentions', q) })">
+                <textarea
+                    rows="3"
+                    wire:model.defer="editingCommentBody"
+                    x-ref="field"
+                    x-on:keydown="onKeydown($event)"
+                    class="w-full rounded-md border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 p-2"
+                ></textarea>
+
+                {{-- mentions dropdown (per-field, works in nested DOM) --}}
+                <template x-if="open">
+                    <div
+                        class="absolute z-[9999] mt-1 w-80 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 rounded-lg shadow"
+                        x-on:click.outside="close"
+                        style="left:0; top:100%;"
+                    >
+                        <template x-for="(u,i) in results" :key="u.id ?? i">
+                            <div
+                                class="px-3 py-2 cursor-pointer"
+                                :class="{'bg-blue-50 dark:bg-zinc-800/60': i===highlight}"
+                                x-on:mouseenter="highlight=i"
+                                x-on:click="pick(u)"
+                            >
+                                <div class="font-medium" x-text="u.name || u.email || 'User'"></div>
+                                <div class="text-xs text-gray-500" x-text="u.email || ''"></div>
+                            </div>
+                        </template>
+                    </div>
+                </template>
+            </div>
             @error('editingCommentBody') <div class="text-sm text-red-600">{{ $message }}</div> @enderror
 
             {{-- existing attachments with remove --}}
@@ -99,6 +129,7 @@
             </div>
         </div>
     @else
+        {{-- read-only body --}}
         <div class="mt-1 whitespace-pre-wrap break-words">{{ $comment->body }}</div>
 
         {{-- attachments (read-only) --}}
@@ -197,14 +228,38 @@
     {{-- inline reply (with matching upload button) --}}
     @if($replyTo === $comment->id && $canInteract)
         <div class="mt-3 space-y-2" x-data="filePicker('replyUploads')">
-            <textarea
-                rows="2"
-                wire:model.defer="reply"
-                x-data="jiraBox('reply')"
-  x-on:keydown="onKeydown($event)"
-                placeholder="Antwort schreiben … (mit @Name erwähnen)"
-                class="w-full rounded-md border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 p-2"
-            ></textarea>
+            <div class="relative"
+                 x-data="textAssist({ fetchMentions: (q) => $wire.call('searchMentions', q) })">
+                <textarea
+                    rows="2"
+                    wire:model.defer="reply"
+                    x-ref="field"
+                    x-on:keydown="onKeydown($event)"
+                    placeholder="Antwort schreiben … (mit @Name erwähnen)"
+                    class="w-full rounded-md border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 p-2"
+                ></textarea>
+
+                {{-- mentions dropdown for inline reply --}}
+                <template x-if="open">
+                    <div
+                        class="absolute z-[9999] mt-1 w-80 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 rounded-lg shadow"
+                        x-on:click.outside="close"
+                        style="left:0; top:100%;"
+                    >
+                        <template x-for="(u,i) in results" :key="u.id ?? i">
+                            <div
+                                class="px-3 py-2 cursor-pointer"
+                                :class="{'bg-blue-50 dark:bg-zinc-800/60': i===highlight}"
+                                x-on:mouseenter="highlight=i"
+                                x-on:click="pick(u)"
+                            >
+                                <div class="font-medium" x-text="u.name || u.email || 'User'"></div>
+                                <div class="text-xs text-gray-500" x-text="u.email || ''"></div>
+                            </div>
+                        </template>
+                    </div>
+                </template>
+            </div>
             @error('reply') <div class="text-sm text-red-600">{{ $message }}</div> @enderror
 
             <div class="flex items-center justify-between">

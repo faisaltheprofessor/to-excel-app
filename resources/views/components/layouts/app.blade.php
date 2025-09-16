@@ -90,17 +90,15 @@
     @csrf
 </form>
 @fluxScripts
-
 <script>
-    /**
+/**
  * Safe file picker for Livewire.
  * Requires an explicit Livewire property name (model) that exists on the component.
  * Usage (examples):
- *   x-data="filePicker('replyUploads')"   // FeedbackShow::$replyUploads
- *   x-data="filePicker('editUploads')"    // FeedbackShow::$editUploads
- *   x-data="filePicker('editingCommentUploads')" // FeedbackShow::$editingCommentUploads
+ *   x-data="filePicker('replyUploads')"            // FeedbackShow::$replyUploads
+ *   x-data="filePicker('editUploads')"             // FeedbackShow::$editUploads
+ *   x-data="filePicker('editingCommentUploads')"   // FeedbackShow::$editingCommentUploads
  */
-
 window.filePicker = function(model){
   if (!model) {
     console.warn('[filePicker] You must pass the Livewire model name, e.g. filePicker("replyUploads")');
@@ -119,7 +117,6 @@ window.filePicker = function(model){
     },
     sync(){
       if (!model) return;
-      // Upload to a Livewire public array property that actually exists on the component
       try {
         if (this.$wire?.uploadMultiple) {
           this.$wire.uploadMultiple(model, this.files, () => {}, () => {});
@@ -132,29 +129,26 @@ window.filePicker = function(model){
 };
 
 /**
- * Global helper: Jira shortcuts + Mentions with ID-based de-duplication,
- * client-side filtering, optional formatting of inserted mentions,
- * and hydration of already-mentioned users on init.
+ * Global helper: Jira shortcuts + Mentions
+ * - Inserts mentions as plain text: "@Name"
+ * - De-duplicates by handle (name/email) per field (each user once)
+ * - Client-side filtering as you type
+ * - Hydrates existing "@Name" so duplicates remain blocked on rehydrate
  *
  * Usage on any input/textarea:
- *   x-data="textAssist({
- *     fetchMentions: (q) => $wire.call('searchMentions', q),
- *     mentionFormat: 'markdown' | 'token' | 'plain'   // optional
- *   })"
+ *   x-data="textAssist({ fetchMentions: (q) => $wire.call('searchMentions', q) })"
+ *   x-ref="field"
  *   x-on:keydown="onKeydown($event)"
  *   x-on:input.debounce.120ms="detectMentions"
  */
 window.textAssist = function (opts = {}) {
-  const fetchMentions   = typeof opts.fetchMentions === 'function' ? opts.fetchMentions : async () => [];
-  const uniqueMentions  = opts.uniqueMentions !== false; // default true
-  const mentionFormat   = (opts.mentionFormat || 'markdown'); // 'markdown' | 'token' | 'plain'
-  const mentionKey      = typeof opts.mentionKey === 'function'
-                          ? opts.mentionKey
-                          : (u) => (u?.name || u?.email || 'user');
+  const fetchMentions  = typeof opts.fetchMentions === 'function' ? opts.fetchMentions : async () => [];
+  const uniqueMentions = opts.uniqueMentions !== false; // default true
+  const mentionKey     = typeof opts.mentionKey === 'function'
+                         ? opts.mentionKey
+                         : (u) => (u?.name || u?.email || 'user');
 
-  // Track which user IDs we already inserted in THIS field instance
-  const mentionedIds = new Set();
-  // Track which "handles" (for id-less results) we inserted
+  // We de-dup by normalized handle (name/email), since we insert as plain text.
   const mentionedHandles = new Set();
 
   // Jira quick tokens
@@ -181,23 +175,11 @@ window.textAssist = function (opts = {}) {
 
   const handleFor = (u) => toTitle(mentionKey(u));
 
-  // Build the text to insert for a mention, based on format + presence of id
+  // Build the text to insert for a mention (plain mode only)
   const buildMentionText = (u) => {
-    const id  = (u && (u.id ?? u.ID ?? u.user_id));
-    const nm  = (u?.name || u?.email || 'User').trim();
-    const name = nm || 'User';
-    const handle = handleFor({ name }); // prettified
-    if (!id) {
-      // No ID → fall back to selected format but without link target
-      if (mentionFormat === 'token')  return `@[${handle}]`;
-      if (mentionFormat === 'plain')  return `@${handle}`;
-      // 'markdown' w/o id is not meaningful for profile links → plain
-      return `@${handle}`;
-    }
-    if (mentionFormat === 'plain')  return `@${handle}`;
-    if (mentionFormat === 'token')  return `@[${id}:${handle}]`;
-    // default: 'markdown'
-    return `[@${handle}](/profile/${id})`;
+    const nm = (u?.name || u?.email || 'User').trim();
+    const handle = toTitle(nm || 'User');
+    return '@' + handle;
   };
 
   // Client-side filter against query across name & email
@@ -214,23 +196,14 @@ window.textAssist = function (opts = {}) {
     });
   };
 
-  // Parse already-present mentions in field and hydrate de-dup sets
+  // Parse already-present @Name mentions in the field to hydrate de-dup
   const hydrateExistingMentions = (val) => {
     if (!val) return;
-    // markdown: [@Name](/profile/123)
-    const mdRe = /\[@[^\]]+\]\(\/profile\/(\d+)\)/g;
-    // token: @[123:Name] OR @[Name]
-    const tokenIdRe = /@\[(\d+):[^\]]+\]/g;
-    const tokenHandleRe = /@\[(?!\d+:)([^\]]+)\]/g;
-    // plain: @Name  (best-effort; not adding, to avoid false positives)
+    // Best-effort: find "@Word..." tokens. We only store the normalized handle part.
+    // This avoids matching emails or punctuation-heavy strings.
+    const re = /@([\p{L}\p{M}][\p{L}\p{M}.\- ]{0,50})/gu;
     let m;
-    while ((m = mdRe.exec(val)) !== null) {
-      mentionedIds.add(String(m[1]));
-    }
-    while ((m = tokenIdRe.exec(val)) !== null) {
-      mentionedIds.add(String(m[1]));
-    }
-    while ((m = tokenHandleRe.exec(val)) !== null) {
+    while ((m = re.exec(val)) !== null) {
       const h = norm(m[1]);
       if (h) mentionedHandles.add(h);
     }
@@ -315,13 +288,8 @@ window.textAssist = function (opts = {}) {
         // Client-side filtering as you type (name/email/handle)
         arr = filterByQuery(arr, this.query);
 
-        // De-duplicate:
-        //  - If item has an ID: block if ID already mentioned in this field.
-        //  - If item has NO ID: block only if exact same handle already inserted.
         if (uniqueMentions) {
           arr = arr.filter(u => {
-            const id = (u && (u.id ?? u.ID ?? u.user_id));
-            if (id != null) return !mentionedIds.has(String(id));
             const h = norm(handleFor(u));
             return h ? !mentionedHandles.has(h) : false;
           });
@@ -337,37 +305,29 @@ window.textAssist = function (opts = {}) {
 
     close(){ this.open = false; this.results = []; this.query = ''; this.range = null; },
 
-    // --- Insert a mention (ID-based unique, formatted) ---
+    // --- Insert a mention (plain + de-dup by handle) ---
     pick(user){
       if (!this.range) return;
 
-      const id = (user && (user.id ?? user.ID ?? user.user_id));
       const handle = handleFor(user);
       if (!handle) { this.close(); return; }
 
-      // block duplicates
-      if (uniqueMentions) {
-        if (id != null && mentionedIds.has(String(id))) { this.close(); return; }
-        if (id == null) {
-          const h = norm(handle);
-          if (mentionedHandles.has(h)) { this.close(); return; }
-        }
-      }
+      const hKey = norm(handle);
+      if (uniqueMentions && mentionedHandles.has(hKey)) { this.close(); return; }
 
-      const at = buildMentionText(user);
+      const at = buildMentionText(user); // -> "@Name"
       const v  = this.getVal();
       const newVal = v.slice(0, this.range.start) + at + ' ' + v.slice(this.range.end);
       this.setVal(newVal);
       this.setCaret(this.range.start + at.length + 1);
 
-      if (id != null) mentionedIds.add(String(id));
-      else            mentionedHandles.add(norm(handle));
+      mentionedHandles.add(hKey);
 
-      // Let others hook into it (analytics, etc.)
+      // Optional event for analytics/hooks
       try {
         this.$el.dispatchEvent(new CustomEvent('mention-inserted', {
           bubbles: true,
-          detail: { id: id ?? null, name: user?.name ?? null, email: user?.email ?? null }
+          detail: { id: user?.id ?? null, name: user?.name ?? null, email: user?.email ?? null }
         }));
       } catch {}
 
@@ -393,7 +353,7 @@ window.textAssist = function (opts = {}) {
     },
 
     init(){
-      // Hydrate existing mentions so de-dup works with prefilled content / rehydrate
+      // Hydrate existing @Name mentions so de-dup works with prefilled content / rehydrate
       hydrateExistingMentions(this.getVal());
       this.detectMentions();
     }
