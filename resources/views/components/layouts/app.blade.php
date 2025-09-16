@@ -19,7 +19,7 @@
 
     <flux:navbar class="-mb-px max-lg:hidden">
         <flux:navbar.item icon="home" href="/importer" wire:navigate>Home</flux:navbar.item>
-        <flux:navbar.item icon="kanban" href="/feedback/kanban" wire:navigate>Kanban</flux:navbar.item>
+        <flux:navbar.item icon="kanban" href="/feedback/kanban" wire:navigate>Kanban <flux:badge color="lime">{{ \App\Models\Feedback::where('status', 'closed')->count() }}/{{ \App\Models\Feedback::count() }}</flux:badge></flux:navbar.item>
 
         <flux:separator vertical variant="subtle" class="my-2"/>
 
@@ -92,24 +92,70 @@
 @fluxScripts
 
 <script>
+    /**
+ * Safe file picker for Livewire.
+ * Requires an explicit Livewire property name (model) that exists on the component.
+ * Usage (examples):
+ *   x-data="filePicker('replyUploads')"   // FeedbackShow::$replyUploads
+ *   x-data="filePicker('editUploads')"    // FeedbackShow::$editUploads
+ *   x-data="filePicker('editingCommentUploads')" // FeedbackShow::$editingCommentUploads
+ */
+
+window.filePicker = function(model){
+  if (!model) {
+    console.warn('[filePicker] You must pass the Livewire model name, e.g. filePicker("replyUploads")');
+  }
+  return {
+    files: [],
+    add(e){
+      const selected = Array.from(e.target.files || []);
+      for (const f of selected) this.files.push(f);
+      this.sync();
+      e.target.value = '';
+    },
+    remove(i){
+      this.files.splice(i, 1);
+      this.sync();
+    },
+    sync(){
+      if (!model) return;
+      // Upload to a Livewire public array property that actually exists on the component
+      try {
+        if (this.$wire?.uploadMultiple) {
+          this.$wire.uploadMultiple(model, this.files, () => {}, () => {});
+        }
+      } catch (err) {
+        console.error(`[filePicker] uploadMultiple failed for "${model}"`, err);
+      }
+    }
+  };
+};
+
 /**
  * Global helper: Jira shortcuts + Mentions with ID-based de-duplication,
- * formatted insert (@First Last), and client-side filtering as you type.
+ * client-side filtering, optional formatting of inserted mentions,
+ * and hydration of already-mentioned users on init.
  *
  * Usage on any input/textarea:
- *   x-data="textAssist({ fetchMentions: (q) => $wire.call('searchMentions', q) })"
+ *   x-data="textAssist({
+ *     fetchMentions: (q) => $wire.call('searchMentions', q),
+ *     mentionFormat: 'markdown' | 'token' | 'plain'   // optional
+ *   })"
  *   x-on:keydown="onKeydown($event)"
  *   x-on:input.debounce.120ms="detectMentions"
  */
 window.textAssist = function (opts = {}) {
-  const fetchMentions  = typeof opts.fetchMentions === 'function' ? opts.fetchMentions : async () => [];
-  const uniqueMentions = opts.uniqueMentions !== false; // default true
-  const mentionKey     = typeof opts.mentionKey === 'function'
-                         ? opts.mentionKey
-                         : (u) => (u?.name || u?.email || 'user');
+  const fetchMentions   = typeof opts.fetchMentions === 'function' ? opts.fetchMentions : async () => [];
+  const uniqueMentions  = opts.uniqueMentions !== false; // default true
+  const mentionFormat   = (opts.mentionFormat || 'markdown'); // 'markdown' | 'token' | 'plain'
+  const mentionKey      = typeof opts.mentionKey === 'function'
+                          ? opts.mentionKey
+                          : (u) => (u?.name || u?.email || 'user');
 
   // Track which user IDs we already inserted in THIS field instance
   const mentionedIds = new Set();
+  // Track which "handles" (for id-less results) we inserted
+  const mentionedHandles = new Set();
 
   // Jira quick tokens
   const TOKEN_MAP = { '/': '✅', 'x': '❌', 'y': '👍' };
@@ -135,6 +181,25 @@ window.textAssist = function (opts = {}) {
 
   const handleFor = (u) => toTitle(mentionKey(u));
 
+  // Build the text to insert for a mention, based on format + presence of id
+  const buildMentionText = (u) => {
+    const id  = (u && (u.id ?? u.ID ?? u.user_id));
+    const nm  = (u?.name || u?.email || 'User').trim();
+    const name = nm || 'User';
+    const handle = handleFor({ name }); // prettified
+    if (!id) {
+      // No ID → fall back to selected format but without link target
+      if (mentionFormat === 'token')  return `@[${handle}]`;
+      if (mentionFormat === 'plain')  return `@${handle}`;
+      // 'markdown' w/o id is not meaningful for profile links → plain
+      return `@${handle}`;
+    }
+    if (mentionFormat === 'plain')  return `@${handle}`;
+    if (mentionFormat === 'token')  return `@[${id}:${handle}]`;
+    // default: 'markdown'
+    return `[@${handle}](/profile/${id})`;
+  };
+
   // Client-side filter against query across name & email
   const filterByQuery = (items, q) => {
     const nq = norm(q);
@@ -147,6 +212,28 @@ window.textAssist = function (opts = {}) {
              (nEmail && nEmail.includes(nq)) ||
              (nKey && nKey.includes(nq));
     });
+  };
+
+  // Parse already-present mentions in field and hydrate de-dup sets
+  const hydrateExistingMentions = (val) => {
+    if (!val) return;
+    // markdown: [@Name](/profile/123)
+    const mdRe = /\[@[^\]]+\]\(\/profile\/(\d+)\)/g;
+    // token: @[123:Name] OR @[Name]
+    const tokenIdRe = /@\[(\d+):[^\]]+\]/g;
+    const tokenHandleRe = /@\[(?!\d+:)([^\]]+)\]/g;
+    // plain: @Name  (best-effort; not adding, to avoid false positives)
+    let m;
+    while ((m = mdRe.exec(val)) !== null) {
+      mentionedIds.add(String(m[1]));
+    }
+    while ((m = tokenIdRe.exec(val)) !== null) {
+      mentionedIds.add(String(m[1]));
+    }
+    while ((m = tokenHandleRe.exec(val)) !== null) {
+      const h = norm(m[1]);
+      if (h) mentionedHandles.add(h);
+    }
   };
 
   return {
@@ -220,7 +307,7 @@ window.textAssist = function (opts = {}) {
       this.range = { start: left.length - m[0].length, end: this.caret() };
       this.highlight = 0;
 
-      // fetch suggestions (server), then filter (client), then dedupe
+      // fetch suggestions (server), then filter (client), then de-dup
       try {
         const res = await fetchMentions(this.query);
         let arr = Array.isArray(res) ? res : [];
@@ -228,21 +315,18 @@ window.textAssist = function (opts = {}) {
         // Client-side filtering as you type (name/email/handle)
         arr = filterByQuery(arr, this.query);
 
-        // De-duplicate per ID (or fallback to handle) against already mentioned
+        // De-duplicate:
+        //  - If item has an ID: block if ID already mentioned in this field.
+        //  - If item has NO ID: block only if exact same handle already inserted.
         if (uniqueMentions) {
           arr = arr.filter(u => {
             const id = (u && (u.id ?? u.ID ?? u.user_id));
             if (id != null) return !mentionedIds.has(String(id));
-            // fallback: prevent exact same handle if item truly has no id
             const h = norm(handleFor(u));
-            // If some users with the same name DO have IDs and are already mentioned,
-            // we still want to allow other distinct IDs. This check only blocks id-less exact handle duplicates.
-            const alreadyByHandle = [...mentionedIds].some(() => false); // no-op when we only track IDs
-            return !alreadyByHandle && !!h;
+            return h ? !mentionedHandles.has(h) : false;
           });
         }
 
-        // Limit list (optional): arr = arr.slice(0, 8);
         this.results = arr;
         this.open = this.results.length > 0;
       } catch {
@@ -261,24 +345,32 @@ window.textAssist = function (opts = {}) {
       const handle = handleFor(user);
       if (!handle) { this.close(); return; }
 
+      // block duplicates
       if (uniqueMentions) {
         if (id != null && mentionedIds.has(String(id))) { this.close(); return; }
         if (id == null) {
-          // fallback: if no id, prevent exact same handle twice
-          const val = this.getVal();
-          const escaped = handle.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
-          const re = new RegExp(`(^|\\s)@${escaped}(\\s|$)`, 'i');
-          if (re.test(val)) { this.close(); return; }
+          const h = norm(handle);
+          if (mentionedHandles.has(h)) { this.close(); return; }
         }
       }
 
-      const at = '@' + handle;
+      const at = buildMentionText(user);
       const v  = this.getVal();
       const newVal = v.slice(0, this.range.start) + at + ' ' + v.slice(this.range.end);
       this.setVal(newVal);
       this.setCaret(this.range.start + at.length + 1);
 
       if (id != null) mentionedIds.add(String(id));
+      else            mentionedHandles.add(norm(handle));
+
+      // Let others hook into it (analytics, etc.)
+      try {
+        this.$el.dispatchEvent(new CustomEvent('mention-inserted', {
+          bubbles: true,
+          detail: { id: id ?? null, name: user?.name ?? null, email: user?.email ?? null }
+        }));
+      } catch {}
+
       this.close();
     },
 
@@ -300,10 +392,15 @@ window.textAssist = function (opts = {}) {
       queueMicrotask(() => this.detectMentions());
     },
 
-    init(){ this.detectMentions(); }
+    init(){
+      // Hydrate existing mentions so de-dup works with prefilled content / rehydrate
+      hydrateExistingMentions(this.getVal());
+      this.detectMentions();
+    }
   };
 };
 </script>
+
 
 </body>
 </html>

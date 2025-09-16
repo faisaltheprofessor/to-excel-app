@@ -21,10 +21,6 @@ class FeedbackComment extends Model
         'attachments' => 'array',
     ];
 
-    public function feedback()
-    {
-        return $this->belongsTo(Feedback::class);
-    }
 
     public function user()
     {
@@ -44,5 +40,11 @@ class FeedbackComment extends Model
     public function reactions()
     {
         return $this->hasMany(FeedbackReaction::class, 'comment_id');
+    }
+
+    public function feedback()
+    {
+        // Ensure the parent feedback is available even when soft-deleted
+        return $this->belongsTo(\App\Models\Feedback::class)->withTrashed();
     }
 }

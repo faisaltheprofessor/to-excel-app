@@ -27,7 +27,7 @@ class Feedback extends Model
 ];
 
     public const TAG_SUGGESTIONS = ['UI','Performance','Bug','Importer','Excel','Vorschlag'];
-    public const STATUSES   = ['open','in_progress','in_review','resolved','closed','wontfix'];
+    public const STATUSES   = ['open','in_progress','resolved','in_review', 'closed','wontfix'];
     public const PRIORITIES = ['low','normal','high','urgent'];
 
     public function user(): BelongsTo { return $this->belongsTo(User::class); }

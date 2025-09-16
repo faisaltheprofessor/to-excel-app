@@ -1,8 +1,11 @@
+{{-- resources/views/livewire/partials/reactions.blade.php --}}
+
+@if($targetFeedback)
 @php
     /** @var \App\Models\Feedback $targetFeedback */
     $uid = auth()->id();
 
-    // Counts per emoji for this target (feedback or comment)
+    // Counts per emoji for this target (feedback or a specific comment)
     $reactionCounts = $targetFeedback->reactions()
         ->selectRaw('emoji, COUNT(*) as c')
         ->where('comment_id', $commentId)
@@ -69,3 +72,5 @@
         </div>
     @endforeach
 </div>
+@else
+@endif

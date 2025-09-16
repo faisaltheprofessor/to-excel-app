@@ -81,6 +81,7 @@
                         @endforeach
                     </flux:select>
                 </div>
+
             </div>
         </div>
 
@@ -110,7 +111,7 @@
                 {{-- Header --}}
                 <div class="px-4 py-3 flex justify-between items-center border-b border-zinc-200 dark:border-zinc-700 rounded-t-lg"
                      :class="over ? 'bg-blue-50/60 dark:bg-blue-900/20' : ''">
-                    <div class="text-sm font-semibold">{{ $col['title'] }}</div>
+                    <div class="text-sm font-semibold">{{ $col['title'] }} ({{ count($col['cards']) }})</div>
                     <flux:button variant="subtle" size="xs" icon="ellipsis-horizontal" />
                 </div>
 

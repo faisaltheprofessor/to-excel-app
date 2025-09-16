@@ -4,7 +4,8 @@
             Ticket
         </flux:button>
 
-        <flux:popover class="min-w-[30rem] flex flex-col gap-4" x-data="filePicker()">
+        {{-- IMPORTANT: bind to the real Livewire array prop name: "uploads" --}}
+        <flux:popover class="min-w-[30rem] flex flex-col gap-4" x-data="filePicker('uploads')">
             <div class="flex items-center justify-between">
                 <flux:heading size="sm">Neues Anliegen</flux:heading>
                 <flux:button
@@ -44,7 +45,23 @@
                     placeholder="Kurzer Titel"
                     x-ref="field"
                     x-on:keydown="onKeydown($event)"
+                    x-on:input.debounce.120ms="detectMentions"
                 />
+                {{-- mention dropdown --}}
+                <template x-if="open">
+                    <div class="mention-menu absolute left-0 z-50 bg-white dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-lg mt-1 w-80 shadow"
+                         x-on:click.outside="close">
+                        <template x-for="(u,i) in results" :key="u.id ?? i">
+                            <div class="mention-item px-3 py-2 cursor-pointer"
+                                 :class="{'bg-blue-50 dark:bg-blue-900/20': i===highlight}"
+                                 x-on:mouseenter="highlight=i"
+                                 x-on:click="pick(u)">
+                                <div class="font-medium" x-text="'@' + (u.name || u.email || 'user')"></div>
+                                <div class="text-xs text-gray-500 dark:text-gray-400" x-text="u.email || ''"></div>
+                            </div>
+                        </template>
+                    </div>
+                </template>
                 @error('title') <div class="mt-1 text-sm text-red-600">{{ $message }}</div> @enderror
             </div>
 
@@ -58,7 +75,23 @@
                     placeholder="Beschreibung"
                     x-ref="field"
                     x-on:keydown="onKeydown($event)"
+                    x-on:input.debounce.120ms="detectMentions"
                 ></flux:textarea>
+                {{-- mention dropdown --}}
+                <template x-if="open">
+                    <div class="mention-menu absolute left-0 z-50 bg-white dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-lg mt-1 w-80 shadow"
+                         x-on:click.outside="close">
+                        <template x-for="(u,i) in results" :key="u.id ?? i">
+                            <div class="mention-item px-3 py-2 cursor-pointer"
+                                 :class="{'bg-blue-50 dark:bg-blue-900/20': i===highlight}"
+                                 x-on:mouseenter="highlight=i"
+                                 x-on:click="pick(u)">
+                                <div class="font-medium" x-text="'@' + (u.name || u.email || 'user')"></div>
+                                <div class="text-xs text-gray-500 dark:text-gray-400" x-text="u.email || ''"></div>
+                            </div>
+                        </template>
+                    </div>
+                </template>
                 @error('message') <div class="mt-1 text-sm text-red-600">{{ $message }}</div> @enderror
             </div>
 
@@ -114,7 +147,7 @@
                                  wire:key="upload-{{ $i }}-{{ $keySig }}">
                                 <button type="button"
                                         class="absolute -top-2 -right-2 bg-zinc-800 text-white rounded-full w-6 h-6 text-xs"
-                                        @click.prevent="remove({{ $loop->index }})">×</button>
+                                        @click.prevent="remove({{ $i }})">×</button>
 
                                 @if ($isImg)
                                     <img src="{{ $f->temporaryUrl() }}" alt="{{ $name }}" class="w-full h-36 object-cover rounded-lg">
@@ -176,31 +209,8 @@
         </div>
     </flux:modal>
 
-    {{-- Alpine helpers (component-scoped) --}}
+    {{-- Remove any old inline filePicker(); rely on the global helper in layout --}}
     <script>
-        function filePicker() {
-            return {
-                files: [],
-                add(e) {
-                    const selected = Array.from(e.target.files || []);
-                    // append (do not replace) and cap at 5
-                    for (const f of selected) {
-                        if (this.files.length < 5) this.files.push(f);
-                    }
-                    this.sync();
-                    e.target.value = ''; // allow re-choosing same file
-                },
-                remove(index) {
-                    this.files.splice(index, 1);
-                    this.sync();
-                },
-                sync() {
-                    // push the merged selection to Livewire
-                    this.$wire.uploadMultiple('uploads', this.files, () => {}, () => {});
-                }
-            }
-        }
-
         // success -> close popover + open modal
         document.addEventListener('feedback-sent', () => {
             const btn = document.getElementById('open-feedback-success');

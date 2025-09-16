@@ -14,17 +14,11 @@ class FeedbackWidget extends Component
 {
     use WithFileUploads;
 
-    /** bug | suggestion */
     public string $type = 'bug';
-
-    /** Titel + Nachricht */
     public string $title = '';
     public string $message = '';
-
-    /** Priorität (low|normal|high|urgent) */
     public string $priority = 'normal';
 
-    /** Uploads */
     #[Validate([
         'uploads.*' => 'file|mimes:jpg,jpeg,png,webp,gif,mp4,mov,avi,webm,pdf,doc,docx,xls,xlsx|max:102400'
     ])]
@@ -117,22 +111,21 @@ class FeedbackWidget extends Component
         $this->validateUploads();
 
         $stored = [];
-foreach ($this->uploads as $file) {
-    $folder = 'feedback/' . now()->format('Y/m/d');
-    $ext    = $file->getClientOriginalExtension();
-    $name   = uniqid('', true) . '.' . $ext;
+        foreach ($this->uploads as $file) {
+            $folder = 'feedback/' . now()->format('Y/m/d');
+            $ext    = $file->getClientOriginalExtension();
+            $name   = uniqid('', true) . '.' . $ext;
 
-    // Store on the public disk
-    $path = $file->storeAs($folder, $name, 'public');
+            $path = $file->storeAs($folder, $name, 'public');
 
-    $stored[] = [
-        'path' => $path,                                      // relative path in storage
-        'url'  => Storage::disk('public')->url($path),        // ✅ public URL for <img>/<video>
-        'mime' => $file->getMimeType(),
-        'name' => $file->getClientOriginalName(),
-        'size' => $file->getSize(),
-    ];
-}
+            $stored[] = [
+                'path' => $path,
+                'url'  => Storage::disk('public')->url($path),
+                'mime' => $file->getMimeType(),
+                'name' => $file->getClientOriginalName(),
+                'size' => $file->getSize(),
+            ];
+        }
 
         Feedback::create([
             'user_id'     => Auth::id(),
@@ -158,12 +151,12 @@ foreach ($this->uploads as $file) {
 
     public function searchMentions(string $q = ''): array
     {
-    return \App\Models\User::query()
-        ->when($q !== '', fn($qq) => $qq->where('name', 'like', $q.'%'))
-        ->orderBy('name')
-        ->limit(8)
-        ->get(['id','name','email'])
-        ->map(fn($u) => ['id'=>$u->id, 'name'=>$u->name, 'email'=>$u->email])
-        ->all();
-}
+        return \App\Models\User::query()
+            ->when($q !== '', fn($qq) => $qq->where('name', 'like', $q.'%'))
+            ->orderBy('name')
+            ->limit(8)
+            ->get(['id','name','email'])
+            ->map(fn($u) => ['id'=>$u->id, 'name'=>$u->name, 'email'=>$u->email])
+            ->all();
+    }
 }

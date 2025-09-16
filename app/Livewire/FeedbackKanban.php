@@ -19,6 +19,12 @@ class FeedbackKanban extends Component
     public array $typeFilter = [];     // ['bug','suggestion','feedback','question']
     public array $tagFilter = [];      // OR behavior
 
+    public int $numberOfTickets = 0;
+
+    public function mount()
+    {
+        $this->numberOfTickets = Feedback::count();
+    }
     /** Select */
     public function selectTicket(int $id): void
     {
