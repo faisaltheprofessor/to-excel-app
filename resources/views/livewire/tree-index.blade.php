@@ -1,4 +1,4 @@
-<div class="p-6 space-y-6">
+<div class="w-3/4 md:w-1/2 mx-auto p-6 space-y-6">
     {{-- Header --}}
     <div class="flex items-center gap-3">
         <flux:heading size="lg" class="flex-1">Organisationseinheit</flux:heading>

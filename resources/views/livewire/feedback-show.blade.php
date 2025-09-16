@@ -1,16 +1,60 @@
 @php
-    $statusDe = [
-        'open'=>'Offen','in_progress'=>'In Arbeit','in_review'=>'Im Review','in_test'=>'Im Test',
-        'resolved'=>'Gelöst','closed'=>'Geschlossen','wontfix'=>'Wird nicht behoben'
-    ];
-    $prioDe = ['low'=>'Niedrig','normal'=>'Normal','high'=>'Hoch','urgent'=>'Dringend'];
+    use Illuminate\Support\Facades\Storage;
 
-    $attachments    = is_array($attachments ?? null) ? $attachments : [];
+    $statusDe = [
+        'open'       => 'Offen',
+        'in_progress'=> 'In Arbeit',
+        'resolved'   => 'Gelöst',
+        'in_review'  => 'Im Review',
+        'closed'     => 'Geschlossen',
+        'wontfix'    => 'Wird nicht behoben'
+    ];
+
+    $prioDe = [
+        'low'      => 'Niedrig',
+        'normal'   => 'Normal',
+        'high'     => 'Hoch',
+        'urgent'   => 'Dringend'
+    ];
+
+    $attachmentsRaw = is_array($attachments ?? null) ? $attachments : [];
     $tags           = is_array($tags ?? null) ? $tags : [];
     $tagSuggestions = is_array($tagSuggestions ?? null) ? $tagSuggestions : [];
+
+    $attachments = [];
+    foreach ($attachmentsRaw as $idx => $item) {
+        if (is_string($item)) {
+            // Old style: only stored path
+            $attachments[] = [
+                'label' => basename($item),
+                'url'   => Storage::disk('public')->url($item), // ✅ build proper public URL
+                'mime'  => null,
+                'size'  => null,
+            ];
+        } elseif (is_array($item)) {
+            // New style: array with path+url+meta
+            $label = $item['name'] ?? basename($item['path'] ?? ('file-'.$idx));
+            $url   = $item['url'] ?? (isset($item['path']) ? Storage::disk('public')->url($item['path']) : '#');
+
+            $attachments[] = [
+                'label' => $label,
+                'url'   => $url, // ✅ always store as "url"
+                'mime'  => $item['mime'] ?? null,
+                'size'  => $item['size'] ?? null,
+            ];
+        }
+    }
+
+    $humanSize = function ($b) {
+        if (!is_numeric($b)) return null;
+        $u = ['B','KB','MB','GB'];
+        $i = 0;
+        while ($b >= 1024 && $i < count($u)-1) { $b /= 1024; $i++; }
+        return number_format($b, $i ? 2 : 0).' '.$u[$i];
+    };
 @endphp
 
-<div class="p-6 space-y-8">
+<div class="w-1/2 m:w-3/4 mx-auto p-6 space-y-8">
     {{-- Header --}}
     <div class="flex items-start justify-between">
         <h1 class="text-lg font-semibold">Feedback</h1>
@@ -60,10 +104,9 @@
 
             {{-- Meta badges --}}
             <div class="flex flex-wrap items-center gap-2 text-sm">
-                <span class="px-2 py-0.5 rounded bg-zinc-100 dark:bg-zinc-700">
-                    @php $t = $feedback->type; @endphp
-                    {{ $t==='bug' ? 'Bug' : (($t==='feature' || $t==='suggestion') ? 'Feature' : (($t==='feedback' || $t==='question') ? 'Feedback' : ucfirst($t))) }}
-                </span>
+               <span class="px-2 py-0.5 rounded bg-zinc-100 dark:bg-zinc-700">
+    {{ $feedback->type==='bug' ? 'Fehler' : 'Vorschlag' }}
+</span>
                 <span class="px-2 py-0.5 rounded bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-200">
                     {{ $statusDe[$status] ?? ucfirst($status) }}
                 </span>
@@ -194,20 +237,70 @@
             @endif
 
             {{-- Attachments --}}
-            @if(count($attachments))
-                <div class="space-y-1">
-                    <div class="text-xs text-zinc-500">Anhänge</div>
-                    <ul class="text-sm space-y-1">
-                        @foreach($attachments as $i => $path)
-                            <li>
-                                <a class="text-blue-600 hover:underline" href="{{ route('feedback.file', [$feedback, $i]) }}">
-                                    {{ basename($path) }}
-                                </a>
-                            </li>
-                        @endforeach
-                    </ul>
+@if(count($attachments))
+    <div class="space-y-2">
+        <div class="text-xs text-zinc-500">Anhänge</div>
+
+        <div class="grid grid-cols-2 md:grid-cols-3 gap-4">
+            @foreach($attachments as $att)
+                @php
+                    $mime   = $att['mime'] ?? '';
+                    $label  = $att['label'] ?? 'Datei';
+                    $url    = $att['url'] ?? '#';
+
+                    $isImg  = $mime && str_starts_with($mime, 'image/');
+                    $isVid  = $mime && str_starts_with($mime, 'video/');
+                    $isPdf  = $mime === 'application/pdf';
+                    $ext    = strtolower(pathinfo($label, PATHINFO_EXTENSION));
+                    $isDoc  = in_array($ext, ['doc','docx','xls','xlsx']);
+                @endphp
+
+                <div class="border border-zinc-200 dark:border-zinc-700 rounded-lg p-2 text-sm">
+                    @if($isImg)
+                        {{-- ✅ Image preview --}}
+                        <a href="{{ $url }}" target="_blank" rel="noopener">
+                            <img src="{{ $url }}"
+                                 alt="{{ $label }}"
+                                 class="w-full h-40 object-cover rounded-md">
+                        </a>
+                    @elseif($isVid)
+                        {{-- ✅ Video player --}}
+                        <video src="{{ $url }}" controls playsinline
+                               class="w-full max-h-48 rounded-md"></video>
+                    @elseif($isPdf)
+                        <div class="flex items-center gap-2">
+                            <flux:icon.document class="w-5 h-5 text-zinc-400" />
+                            <a href="{{ $url }}" target="_blank" rel="noopener"
+                               class="text-blue-600 hover:underline">
+                                {{ $label }}
+                            </a>
+                        </div>
+                    @elseif($isDoc)
+                        <div class="flex items-center gap-2">
+                            <flux:icon.document-text class="w-5 h-5 text-zinc-400" />
+                            <a href="{{ $url }}" target="_blank" rel="noopener"
+                               class="text-blue-600 hover:underline">
+                                {{ $label }}
+                            </a>
+                        </div>
+                    @else
+                        <a href="{{ $url }}" target="_blank" rel="noopener"
+                           class="text-blue-600 hover:underline">
+                            {{ $label }}
+                        </a>
+                    @endif
+
+                    @if(!empty($att['size']))
+                        <div class="text-xs text-zinc-500 mt-1">
+                            {{ $humanSize($att['size']) }}
+                        </div>
+                    @endif
                 </div>
-            @endif
+            @endforeach
+        </div>
+    </div>
+@endif
+
 
             {{-- Tags --}}
             @if(count($tags))

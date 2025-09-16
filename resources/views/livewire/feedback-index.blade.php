@@ -1,4 +1,4 @@
-<div class="p-6 space-y-6">
+<div class="w-1/2 md:w-3/4 mx-auto p-6 space-y-6">
     <div class="flex items-center gap-3">
         <flux:heading size="lg" class="flex-1">Feedback</flux:heading>
         <a href="{{ route('importer.index') }}"

@@ -73,9 +73,8 @@ class FeedbackKanban extends Component
         $statusTitles = [
             'open'        => 'Offen',
             'in_progress' => 'In Arbeit',
-            'in_review'   => 'Im Review',
-            'in_test'     => 'Im Test',
             'resolved'    => 'Gelöst',
+            'in_review'   => 'Im Review',
             'closed'      => 'Geschlossen',
             'wontfix'     => 'Wird nicht behoben',
         ];

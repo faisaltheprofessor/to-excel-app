@@ -5,6 +5,7 @@ namespace App\Livewire;
 use App\Models\Feedback;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Request;
+use Illuminate\Support\Facades\Storage;
 use Livewire\Attributes\Validate;
 use Livewire\Component;
 use Livewire\WithFileUploads;
@@ -13,17 +14,20 @@ class FeedbackWidget extends Component
 {
     use WithFileUploads;
 
-    /** bug | suggestion | question */
+    /** bug | suggestion */
     public string $type = 'bug';
 
-    /** Kurzer Titel des Anliegens */
+    /** Titel + Nachricht */
     public string $title = '';
-
-    /** Beschreibung / Nachrichtentext */
     public string $message = '';
 
-    /** @var array<\Livewire\Features\SupportFileUploads\TemporaryUploadedFile> */
-    #[Validate(['uploads.*' => 'file|max:10240|mimes:jpg,jpeg,png,webp,gif,mp4,mov,avi,webm'])]
+    /** Priorität (low|normal|high|urgent) */
+    public string $priority = 'normal';
+
+    /** Uploads */
+    #[Validate([
+        'uploads.*' => 'file|mimes:jpg,jpeg,png,webp,gif,mp4,mov,avi,webm,pdf,doc,docx,xls,xlsx|max:102400'
+    ])]
     public array $uploads = [];
 
     public bool $submitting = false;
@@ -31,10 +35,11 @@ class FeedbackWidget extends Component
     protected function rules(): array
     {
         return [
-            'type'       => 'required|in:bug,suggestion,question',
-            'title'      => 'required|string|min:3|max:200',
-            'message'    => 'required|string|min:5|max:5000',
-            'uploads.*'  => 'file|max:10240|mimes:jpg,jpeg,png,webp,gif,mp4,mov,avi,webm',
+            'type'      => 'required|in:bug,suggestion',
+            'title'     => 'required|string|min:3|max:200',
+            'message'   => 'required|string|min:5|max:5000',
+            'priority'  => 'required|in:low,normal,high,urgent',
+            'uploads.*' => 'file|mimes:jpg,jpeg,png,webp,gif,mp4,mov,avi,webm,pdf,doc,docx,xls,xlsx|max:102400',
         ];
     }
 
@@ -42,16 +47,11 @@ class FeedbackWidget extends Component
     {
         return [
             'type.required'     => 'Bitte wählen Sie einen Typ.',
-            'type.in'           => 'Ungültiger Typ.',
             'title.required'    => 'Bitte geben Sie einen Titel ein.',
-            'title.min'         => 'Der Titel ist zu kurz.',
-            'title.max'         => 'Der Titel ist zu lang.',
             'message.required'  => 'Bitte beschreiben Sie Ihr Anliegen.',
-            'message.min'       => 'Die Nachricht ist zu kurz.',
-            'message.max'       => 'Die Nachricht ist zu lang.',
-            'uploads.*.file'    => 'Ungültige Datei.',
-            'uploads.*.max'     => 'Datei zu groß (max. 10 MB pro Datei).',
-            'uploads.*.mimes'   => 'Nur Bilder/Videos sind erlaubt.',
+            'priority.required' => 'Bitte wählen Sie eine Priorität.',
+            'uploads.*.mimes'   => 'Nur Bilder, Videos, PDF, Word oder Excel erlaubt.',
+            'uploads.*.max'     => 'Datei ist zu groß.',
         ];
     }
 
@@ -59,44 +59,95 @@ class FeedbackWidget extends Component
     {
         $this->validateOnly('uploads.*');
 
-        // Max. 5 Dateien
         if (count($this->uploads) > 5) {
             $this->addError('uploads', 'Maximal 5 Dateien erlaubt.');
             $this->uploads = array_slice($this->uploads, 0, 5);
+        }
+
+        $this->validateUploads();
+    }
+
+    private function validateUploads(): void
+    {
+        $maxImage  = 10 * 1024 * 1024;
+        $maxPdf    = 20 * 1024 * 1024;
+        $maxOffice = 20 * 1024 * 1024;
+        $maxVideo  = 100 * 1024 * 1024;
+
+        foreach ($this->uploads as $i => $file) {
+            $mime = $file->getMimeType() ?? '';
+            $size = $file->getSize() ?? 0;
+
+            if (str_starts_with($mime, 'image/') && $size > $maxImage) {
+                $this->addError("uploads.$i", 'Bild zu groß (max. 10 MB).');
+                unset($this->uploads[$i]);
+            } elseif (str_starts_with($mime, 'video/') && $size > $maxVideo) {
+                $this->addError("uploads.$i", 'Video zu groß (max. 100 MB).');
+                unset($this->uploads[$i]);
+            } elseif ($mime === 'application/pdf' && $size > $maxPdf) {
+                $this->addError("uploads.$i", 'PDF zu groß (max. 20 MB).');
+                unset($this->uploads[$i]);
+            } elseif (in_array($mime, [
+                'application/msword',
+                'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+                'application/vnd.ms-excel',
+                'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            ], true) && $size > $maxOffice) {
+                $this->addError("uploads.$i", 'Office-Dokument zu groß (max. 20 MB).');
+                unset($this->uploads[$i]);
+            }
+        }
+
+        $this->uploads = array_values($this->uploads);
+    }
+
+    public function removeUpload(int $index): void
+    {
+        if (isset($this->uploads[$index])) {
+            unset($this->uploads[$index]);
+            $this->uploads = array_values($this->uploads);
         }
     }
 
     public function submit(): void
     {
         $this->submitting = true;
+
         $this->validate();
+        $this->validateUploads();
 
-        // Dateien speichern (public Disk – anpassen, falls privat gewünscht)
         $stored = [];
-        foreach ($this->uploads as $file) {
-            $stored[] = $file->store('feedback/' . now()->format('Y/m/d'), 'public');
-        }
+foreach ($this->uploads as $file) {
+    $folder = 'feedback/' . now()->format('Y/m/d');
+    $ext    = $file->getClientOriginalExtension();
+    $name   = uniqid('', true) . '.' . $ext;
 
-        // Feedback persistieren
+    // Store on the public disk
+    $path = $file->storeAs($folder, $name, 'public');
+
+    $stored[] = [
+        'path' => $path,                                      // relative path in storage
+        'url'  => Storage::disk('public')->url($path),        // ✅ public URL for <img>/<video>
+        'mime' => $file->getMimeType(),
+        'name' => $file->getClientOriginalName(),
+        'size' => $file->getSize(),
+    ];
+}
+
         Feedback::create([
             'user_id'     => Auth::id(),
             'type'        => $this->type,
             'title'       => $this->title,
             'message'     => $this->message,
+            'priority'    => $this->priority,
             'url'         => Request::fullUrl() ?: null,
             'user_agent'  => Request::userAgent() ?: null,
             'attachments' => $stored,
-            // Optional: Default-Tags/Status/Priorität hier setzen, falls gewünscht
-            // 'tags'        => ['UI Improvement'],
-            // 'status'      => 'open',
-            // 'priority'    => 'normal',
         ]);
 
-        // Eingaben (außer Typ) zurücksetzen
         $this->reset(['title', 'message', 'uploads']);
         $this->submitting = false;
 
-        // Browser-Event für Erfolgsmodal & Popover-Schließen
         $this->dispatch('feedback-sent');
     }
 

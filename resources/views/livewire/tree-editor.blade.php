@@ -1,5 +1,5 @@
 {{-- Full-height, page scroll locked; only tree scrolls --}}
-<div class="h-screen overflow-hidden flex flex-col">
+<div class="w-1/2 m:w-3/4 mx-auto h-screen overflow-hidden flex flex-col">
     {{-- Header (title + info) --}}
     <div class="p-6 pb-2 flex flex-col gap-1 shrink-0">
         <div class="flex items-center gap-3">

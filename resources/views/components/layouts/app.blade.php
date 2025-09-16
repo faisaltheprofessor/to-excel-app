@@ -73,10 +73,12 @@
     </flux:navlist>
 </flux:sidebar>
 
-<flux:main container>
-    <flux:heading size="xl" level="1">Hallo, {{ Str::title(Auth::user()->name) }}</flux:heading>
+<flux:main class="w-full" >
+    <div class="w-1/2 mx-auto">
+        <flux:heading size="xl" level="1">Hallo, {{ Str::title(Auth::user()->name) }}</flux:heading>
 
     <flux:text class="mt-2 mb-6 text-base">Importer-Datei leicht gemacht</flux:text>
+    </div>
 
     {{ $slot }}
     <flux:separator variant="subtle"/>
