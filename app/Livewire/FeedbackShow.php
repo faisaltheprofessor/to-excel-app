@@ -9,17 +9,25 @@ use App\Models\FeedbackEdit;
 use App\Models\FeedbackCommentEdit;
 use App\Models\User;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Storage;
 use Livewire\Attributes\Validate;
 use Livewire\Component;
+use Livewire\WithFileUploads;
 
 class FeedbackShow extends Component
 {
+    use WithFileUploads;
+
     public Feedback $feedback;
 
     // composer
     #[Validate('required|string|min:1|max:5000')]
     public string $reply = '';
     public ?int $replyTo = null;
+
+    /** new comment uploads */
+    #[Validate(['replyUploads.*' => 'file|mimes:jpg,jpeg,png,webp,gif,mp4,mov,avi,webm,pdf,doc,docx,xls,xlsx'])]
+    public array $replyUploads = [];
 
     // meta
     public string $status = 'open';
@@ -59,6 +67,11 @@ class FeedbackShow extends Component
     // inline edit: comment
     public ?int $editingCommentId = null;
     public string $editingCommentBody = '';
+
+    /** editing comment attachments (existing + new) */
+    public array $editingCommentExisting = []; // array of arrays: ['path','url','mime','name','size']
+    #[Validate(['editingCommentNewUploads.*' => 'file|mimes:jpg,jpeg,png,webp,gif,mp4,mov,avi,webm,pdf,doc,docx,xls,xlsx'])]
+    public array $editingCommentNewUploads = [];
 
     // history indicators
     public bool $feedbackEdited = false;
@@ -126,9 +139,9 @@ class FeedbackShow extends Component
 
     private function computeEditedFlags(): void
     {
-        $this->feedbackEdited = FeedbackEdit::where('feedback_id', $this->feedback->id)->exists();
+        $this->feedbackEdited = \App\Models\FeedbackEdit::where('feedback_id', $this->feedback->id)->exists();
         $commentIds = $this->feedback->comments()->pluck('id');
-        $this->commentEditedMap = FeedbackCommentEdit::whereIn('comment_id', $commentIds)
+        $this->commentEditedMap = \App\Models\FeedbackCommentEdit::whereIn('comment_id', $commentIds)
             ->get()->groupBy('comment_id')->map(fn()=>true)->toArray();
     }
 
@@ -140,27 +153,118 @@ class FeedbackShow extends Component
         return $dirtyStatus || $dirtyPriority || $dirtyAssignee;
     }
 
+    // --------- new comment uploads ----------
+    public function updatedReplyUploads(): void
+    {
+        $this->validateOnly('replyUploads.*');
+
+        if (count($this->replyUploads) > 5) {
+            $this->addError('replyUploads', 'Maximal 5 Dateien erlaubt.');
+            $this->replyUploads = array_slice($this->replyUploads, 0, 5);
+        }
+
+        $this->validateReplyUploads();
+    }
+
+    private function validateReplyUploads(): void
+    {
+        $maxImage  = 10 * 1024 * 1024;
+        $maxPdf    = 20 * 1024 * 1024;
+        $maxOffice = 20 * 1024 * 1024;
+        $maxVideo  = 100 * 1024 * 1024;
+
+        foreach ($this->replyUploads as $i => $file) {
+            $mime = $file->getMimeType() ?? '';
+            $size = $file->getSize() ?? 0;
+
+            if (str_starts_with($mime, 'image/')) {
+                if ($size > $maxImage) { $this->addError("replyUploads.$i", 'Bild zu groß (max. 10 MB).'); unset($this->replyUploads[$i]); }
+            } elseif (str_starts_with($mime, 'video/')) {
+                if ($size > $maxVideo) { $this->addError("replyUploads.$i", 'Video zu groß (max. 100 MB).'); unset($this->replyUploads[$i]); }
+            } elseif ($mime === 'application/pdf') {
+                if ($size > $maxPdf) { $this->addError("replyUploads.$i", 'PDF zu groß (max. 20 MB).'); unset($this->replyUploads[$i]); }
+            } elseif (in_array($mime, [
+                'application/msword',
+                'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+                'application/vnd.ms-excel',
+                'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            ], true)) {
+                if ($size > $maxOffice) { $this->addError("replyUploads.$i", 'Office-Dokument zu groß (max. 20 MB).'); unset($this->replyUploads[$i]); }
+            } else {
+                $ext = strtolower($file->getClientOriginalExtension() ?? '');
+                if (in_array($ext, ['doc','docx','xls','xlsx'], true)) {
+                    if ($size > $maxOffice) { $this->addError("replyUploads.$i", 'Office-Dokument zu groß (max. 20 MB).'); unset($this->replyUploads[$i]); }
+                } elseif ($ext === 'pdf') {
+                    if ($size > $maxPdf) { $this->addError("replyUploads.$i", 'PDF zu groß (max. 20 MB).'); unset($this->replyUploads[$i]); }
+                } else {
+                    $this->addError("replyUploads.$i", 'Dateityp nicht erlaubt.'); unset($this->replyUploads[$i]);
+                }
+            }
+        }
+
+        $this->replyUploads = array_values($this->replyUploads);
+    }
+
+    public function removeReplyUpload(int $index): void
+    {
+        if (isset($this->replyUploads[$index])) {
+            unset($this->replyUploads[$index]);
+            $this->replyUploads = array_values($this->replyUploads);
+        }
+    }
+
     // ----- Comments -----
-    public function setReplyTo(?int $commentId = null): void { if ($this->canInteract) $this->replyTo = $commentId; }
+    public function setReplyTo(?int $commentId = null): void
+    {
+        if ($this->canInteract) {
+            $this->replyTo = $commentId;
+            $this->replyUploads = []; // clear when switching threads
+        }
+    }
 
     public function send(): void
     {
         if (!$this->canInteract) return;
+
         $this->validate();
+        $this->validateReplyUploads();
+
+        $stored = [];
+        foreach ($this->replyUploads as $file) {
+            $folder = 'feedback/' . now()->format('Y/m/d') . '/comments';
+            $ext    = $file->getClientOriginalExtension();
+            $name   = uniqid('', true) . '.' . $ext;
+            $path   = $file->storeAs($folder, $name, 'public');
+
+            $stored[] = [
+                'path' => $path,
+                'url'  => Storage::disk('public')->url($path),
+                'mime' => $file->getMimeType(),
+                'name' => $file->getClientOriginalName(),
+                'size' => $file->getSize(),
+            ];
+        }
+
         FeedbackComment::create([
-            'feedback_id'=>$this->feedback->id,
-            'user_id'=>Auth::id(),
-            'body'=>$this->reply,
-            'parent_id'=>$this->replyTo,
+            'feedback_id' => $this->feedback->id,
+            'user_id'     => Auth::id(),
+            'body'        => $this->reply,
+            'parent_id'   => $this->replyTo,
+            'attachments' => $stored,
         ]);
-        $this->reply=''; $this->replyTo=null;
+
+        $this->reply = '';
+        $this->replyTo = null;
+        $this->replyUploads = [];
+
+        // force fresh data (with attachments)
         $this->dispatch('$refresh');
     }
 
     public function deleteComment(int $commentId): void
     {
         if (!$this->canInteract) return;
-        $c=FeedbackComment::where('feedback_id',$this->feedback->id)->where('id',$commentId)->first();
+        $c = FeedbackComment::where('feedback_id',$this->feedback->id)->where('id',$commentId)->first();
         if($c && $c->user_id===Auth::id()){ $c->delete(); $this->dispatch('$refresh'); }
     }
 
@@ -264,25 +368,152 @@ class FeedbackShow extends Component
         $this->editingFeedback=false; $this->feedback->refresh(); $this->metaDirty=$this->isMetaDirty();
     }
 
-    // ----- Comment edit -----
+    // ----- Comment edit (NOW with attachments) -----
     public function startEditComment(int $id): void
     {
         if(!$this->canInteract)return;
-        $c=FeedbackComment::find($id); if(!$c||$c->feedback_id!==$this->feedback->id)return; if($c->user_id!==Auth::id())return;
-        $this->editingCommentId=$c->id; $this->editingCommentBody=$c->body;
+        $c=FeedbackComment::find($id);
+        if(!$c||$c->feedback_id!==$this->feedback->id)return;
+        if($c->user_id!==Auth::id())return;
+
+        $this->editingCommentId   = $c->id;
+        $this->editingCommentBody = $c->body;
+        $this->editingCommentExisting = is_array($c->attachments ?? null) ? array_values($c->attachments) : [];
+        $this->editingCommentNewUploads = [];
     }
-    public function cancelEditComment(): void { $this->editingCommentId=null; $this->editingCommentBody=''; }
+
+    public function removeEditingExisting(int $index): void
+    {
+        if(isset($this->editingCommentExisting[$index])) {
+            unset($this->editingCommentExisting[$index]);
+            $this->editingCommentExisting = array_values($this->editingCommentExisting);
+        }
+    }
+
+    public function updatedEditingCommentNewUploads(): void
+    {
+        $this->validateOnly('editingCommentNewUploads.*');
+
+        if (count($this->editingCommentNewUploads) > 5) {
+            $this->addError('editingCommentNewUploads', 'Maximal 5 Dateien erlaubt.');
+            $this->editingCommentNewUploads = array_slice($this->editingCommentNewUploads, 0, 5);
+        }
+
+        $this->validateEditingNewUploads();
+    }
+
+    private function validateEditingNewUploads(): void
+    {
+        $maxImage  = 10 * 1024 * 1024;
+        $maxPdf    = 20 * 1024 * 1024;
+        $maxOffice = 20 * 1024 * 1024;
+        $maxVideo  = 100 * 1024 * 1024;
+
+        foreach ($this->editingCommentNewUploads as $i => $file) {
+            $mime = $file->getMimeType() ?? '';
+            $size = $file->getSize() ?? 0;
+
+            if (str_starts_with($mime, 'image/')) {
+                if ($size > $maxImage) { $this->addError("editingCommentNewUploads.$i", 'Bild zu groß (max. 10 MB).'); unset($this->editingCommentNewUploads[$i]); }
+            } elseif (str_starts_with($mime, 'video/')) {
+                if ($size > $maxVideo) { $this->addError("editingCommentNewUploads.$i", 'Video zu groß (max. 100 MB).'); unset($this->editingCommentNewUploads[$i]); }
+            } elseif ($mime === 'application/pdf') {
+                if ($size > $maxPdf) { $this->addError("editingCommentNewUploads.$i", 'PDF zu groß (max. 20 MB).'); unset($this->editingCommentNewUploads[$i]); }
+            } elseif (in_array($mime, [
+                'application/msword',
+                'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+                'application/vnd.ms-excel',
+                'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            ], true)) {
+                if ($size > $maxOffice) { $this->addError("editingCommentNewUploads.$i", 'Office-Dokument zu groß (max. 20 MB).'); unset($this->editingCommentNewUploads[$i]); }
+            } else {
+                $ext = strtolower($file->getClientOriginalExtension() ?? '');
+                if (in_array($ext, ['doc','docx','xls','xlsx'], true)) {
+                    if ($size > $maxOffice) { $this->addError("editingCommentNewUploads.$i", 'Office-Dokument zu groß (max. 20 MB).'); unset($this->editingCommentNewUploads[$i]); }
+                } elseif ($ext === 'pdf') {
+                    if ($size > $maxPdf) { $this->addError("editingCommentNewUploads.$i", 'PDF zu groß (max. 20 MB).'); unset($this->editingCommentNewUploads[$i]); }
+                } else {
+                    $this->addError("editingCommentNewUploads.$i", 'Dateityp nicht erlaubt.'); unset($this->editingCommentNewUploads[$i]);
+                }
+            }
+        }
+
+        $this->editingCommentNewUploads = array_values($this->editingCommentNewUploads);
+    }
+
+    public function removeEditingNewUpload(int $index): void
+    {
+        if(isset($this->editingCommentNewUploads[$index])) {
+            unset($this->editingCommentNewUploads[$index]);
+            $this->editingCommentNewUploads = array_values($this->editingCommentNewUploads);
+        }
+    }
+
+    public function cancelEditComment(): void
+    {
+        $this->editingCommentId = null;
+        $this->editingCommentBody = '';
+        $this->editingCommentExisting = [];
+        $this->editingCommentNewUploads = [];
+    }
+
     public function saveEditComment(): void
     {
         if(!$this->canInteract)return;
+
         $this->validate(['editingCommentBody'=>'required|string|min:1|max:5000']);
-        $c=FeedbackComment::find($this->editingCommentId); if(!$c||$c->feedback_id!==$this->feedback->id)return; if($c->user_id!==Auth::id())return;
-        if($c->body!==$this->editingCommentBody){
-            FeedbackCommentEdit::create(['comment_id'=>$c->id,'user_id'=>Auth::id(),'old_body'=>$c->body,'new_body'=>$this->editingCommentBody]);
+        $this->validateEditingNewUploads();
+
+        $c=FeedbackComment::find($this->editingCommentId);
+        if(!$c||$c->feedback_id!==$this->feedback->id)return;
+        if($c->user_id!==Auth::id())return;
+
+        // store new uploads and merge
+        $stored = [];
+        foreach ($this->editingCommentNewUploads as $file) {
+            $folder = 'feedback/' . now()->format('Y/m/d') . '/comments';
+            $ext    = $file->getClientOriginalExtension();
+            $name   = uniqid('', true) . '.' . $ext;
+            $path   = $file->storeAs($folder, $name, 'public');
+
+            $stored[] = [
+                'path' => $path,
+                'url'  => Storage::disk('public')->url($path),
+                'mime' => $file->getMimeType(),
+                'name' => $file->getClientOriginalName(),
+                'size' => $file->getSize(),
+            ];
+        }
+
+        $newAttachments = array_values([
+            ...$this->editingCommentExisting,  // kept after removals
+            ...$stored,                        // newly added
+        ]);
+
+        $changedBody = $c->body !== $this->editingCommentBody;
+        $changedAtts = json_encode($c->attachments ?? []) !== json_encode($newAttachments);
+
+        if ($changedBody || $changedAtts) {
+            if ($changedBody) {
+                FeedbackCommentEdit::create([
+                    'comment_id'=>$c->id,
+                    'user_id'=>Auth::id(),
+                    'old_body'=>$c->body,
+                    'new_body'=>$this->editingCommentBody
+                ]);
+            }
+            $c->update([
+                'body'        => $this->editingCommentBody,
+                'attachments' => $newAttachments,
+            ]);
             $this->commentEditedMap[$c->id]=true;
         }
-        $c->update(['body'=>$this->editingCommentBody]);
-        $this->editingCommentId=null; $this->editingCommentBody=''; $this->dispatch('$refresh');
+
+        $this->editingCommentId=null;
+        $this->editingCommentBody='';
+        $this->editingCommentExisting=[];
+        $this->editingCommentNewUploads=[];
+        $this->dispatch('$refresh');
     }
 
     // ----- Delete / Restore -----
@@ -353,10 +584,10 @@ class FeedbackShow extends Component
     public function render()
     {
         $rootComments=$this->feedback->comments()->with(['user','reactions.user:id,name','children.user','children.reactions.user:id,name'])->get();
-        $attachments=$this->feedback->attachments??[];
+
         return view('livewire.feedback-show',[
             'rootComments'=>$rootComments,
-            'attachments'=>$attachments,
+            'attachments'=>$this->feedback->attachments ?? [],
             'tagSuggestions'=>\App\Models\Feedback::TAG_SUGGESTIONS,
             'canModifyFeedback'=>$this->canModifyFeedback,
             'canInteract'=>$this->canInteract,
