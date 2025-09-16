@@ -4,9 +4,7 @@
             Ticket
         </flux:button>
 
-        <flux:popover class="min-w-[30rem] flex flex-col gap-4"
-                      x-data="filePicker()">
-
+        <flux:popover class="min-w-[30rem] flex flex-col gap-4" x-data="filePicker()">
             <div class="flex items-center justify-between">
                 <flux:heading size="sm">Neues Anliegen</flux:heading>
                 <flux:button
@@ -26,32 +24,67 @@
             </flux:radio.group>
 
             {{-- Priorität --}}
-            <flux:radio.group wire:model="priority" label="Priorität" variant="pills" class="flex flex-wrap gap-2">
-                <flux:radio value="low" label="Niedrig" />
-                <flux:radio value="normal" label="Normal" />
-                <flux:radio value="high" label="Hoch" />
-                <flux:radio value="urgent" label="Dringend" />
-            </flux:radio.group>
-            @error('priority') <div class="text-sm text-red-600">{{ $message }}</div> @enderror
+            <div>
+                <flux:radio.group wire:model="priority" label="Priorität" variant="pills" class="flex flex-wrap gap-2">
+                    <flux:radio value="low" label="Niedrig" />
+                    <flux:radio value="normal" label="Normal" />
+                    <flux:radio value="high" label="Hoch" />
+                    <flux:radio value="urgent" label="Dringend" />
+                </flux:radio.group>
+                @error('priority') <div class="text-sm text-red-600">{{ $message }}</div> @enderror
+            </div>
 
-            {{-- Titel --}}
-            <flux:input type="text" class="w-full" wire:model.defer="title" placeholder="Kurzer Titel" x-data="jiraBox('reply')" x-on:keydown="onKeydown($event)"/>
-            @error('title') <div class="mt-1 text-sm text-red-600">{{ $message }}</div> @enderror
+            {{-- Titel + Mentions --}}
+            <div class="relative"
+                 x-data="textAssist({ fetchMentions: (q) => $wire.call('searchMentions', q) })">
+                <flux:input
+                    type="text"
+                    class="w-full"
+                    wire:model.defer="title"
+                    placeholder="Kurzer Titel"
+                    x-ref="field"
+                    x-on:keydown="onKeydown($event)"
+                />
+                @error('title') <div class="mt-1 text-sm text-red-600">{{ $message }}</div> @enderror
+            </div>
 
-            {{-- Beschreibung --}}
-            <flux:textarea rows="6" class="w-full" wire:model.defer="message" placeholder="Beschreibung" x-data="jiraBox('reply')" x-on:keydown="onKeydown($event)"></flux:textarea>
-            @error('message') <div class="mt-1 text-sm text-red-600">{{ $message }}</div> @enderror
+            {{-- Beschreibung + Mentions --}}
+            <div class="relative"
+                 x-data="textAssist({ fetchMentions: (q) => $wire.call('searchMentions', q) })">
+                <flux:textarea
+                    rows="6"
+                    class="w-full"
+                    wire:model.defer="message"
+                    placeholder="Beschreibung"
+                    x-ref="field"
+                    x-on:keydown="onKeydown($event)"
+                ></flux:textarea>
+                @error('message') <div class="mt-1 text-sm text-red-600">{{ $message }}</div> @enderror
+            </div>
 
             {{-- Datei hinzufügen --}}
             <div>
-                <input x-ref="filepick" type="file" class="hidden"
-                       multiple @change="add($event)"
-                       accept="image/*,video/*,.pdf,.doc,.docx,.xls,.xlsx" />
+                <input
+                    x-ref="filepick"
+                    type="file"
+                    class="hidden"
+                    multiple
+                    @change="add($event)"
+                    accept="image/*,video/*,.pdf,.doc,.docx,.xls,.xlsx"
+                />
 
-                <flux:button variant="filled" size="xs" icon="paper-clip"
-                             x-on:click="$refs.filepick.click()">Dateien anhängen</flux:button>
+                {{-- Uniform button style --}}
+                <flux:button
+                    variant="filled"
+                    size="xs"
+                    icon="paper-clip"
+                    icon:class="text-zinc-400 dark:text-zinc-300"
+                    x-on:click="$refs.filepick.click()"
+                >
+                    Dateien anhängen
+                </flux:button>
 
-                @error('uploads') <div class="text-sm text-red-600">{{ $message }}</div> @enderror
+                @error('uploads') <div class="text-sm text-red-600 mt-1">{{ $message }}</div> @enderror
                 @foreach ($errors->getMessages() as $k => $msgs)
                     @if (str_starts_with($k, 'uploads.'))
                         <div class="text-sm text-red-600">{{ implode(' ', $msgs) }}</div>
@@ -77,7 +110,7 @@
                                 $keySig = md5(($name ?? '').'|'.($f->getSize() ?? 0).'|'.($mime ?? ''));
                             @endphp
 
-                            <div class="relative border border-zinc-200 rounded-lg p-2 flex flex-col gap-2"
+                            <div class="relative border border-zinc-200 dark:border-zinc-700 rounded-lg p-2 flex flex-col gap-2"
                                  wire:key="upload-{{ $i }}-{{ $keySig }}">
                                 <button type="button"
                                         class="absolute -top-2 -right-2 bg-zinc-800 text-white rounded-full w-6 h-6 text-xs"
@@ -110,13 +143,20 @@
 
             {{-- Aktionen --}}
             <div class="flex justify-end gap-2">
-                <flux:button size="sm" class="w-28" variant="primary" color="green"
-                             wire:click="submit" wire:loading.attr="disabled">
+                <flux:button
+                    size="sm"
+                    class="w-28"
+                    variant="primary"
+                    color="green"
+                    wire:click="submit"
+                    wire:loading.attr="disabled"
+                >
                     <span wire:loading.remove wire:target="submit">Senden</span>
                     <span wire:loading wire:target="submit">Senden…</span>
                 </flux:button>
             </div>
 
+            {{-- Hidden trigger for success modal --}}
             <flux:modal.trigger name="feedback-success">
                 <button type="button" id="open-feedback-success" class="hidden"></button>
             </flux:modal.trigger>
@@ -136,30 +176,36 @@
         </div>
     </flux:modal>
 
+    {{-- Alpine helpers (component-scoped) --}}
     <script>
-    function filePicker() {
-        return {
-            files: [],
-            add(e) {
-                const selected = Array.from(e.target.files || []);
-                for (const f of selected) if (this.files.length < 5) this.files.push(f);
-                this.sync();
-                e.target.value = '';
-            },
-            remove(index) {
-                this.files.splice(index, 1);
-                this.sync();
-            },
-            sync() {
-                this.$wire.uploadMultiple('uploads', this.files, () => {}, () => {});
+        function filePicker() {
+            return {
+                files: [],
+                add(e) {
+                    const selected = Array.from(e.target.files || []);
+                    // append (do not replace) and cap at 5
+                    for (const f of selected) {
+                        if (this.files.length < 5) this.files.push(f);
+                    }
+                    this.sync();
+                    e.target.value = ''; // allow re-choosing same file
+                },
+                remove(index) {
+                    this.files.splice(index, 1);
+                    this.sync();
+                },
+                sync() {
+                    // push the merged selection to Livewire
+                    this.$wire.uploadMultiple('uploads', this.files, () => {}, () => {});
+                }
             }
         }
-    }
 
-    document.addEventListener('feedback-sent', () => {
-        const btn = document.getElementById('open-feedback-success');
-        if (btn) btn.click();
-        if (window.$flux?.popover?.close) window.$flux.popover.close();
-    });
+        // success -> close popover + open modal
+        document.addEventListener('feedback-sent', () => {
+            const btn = document.getElementById('open-feedback-success');
+            if (btn) btn.click();
+            if (window.$flux?.popover?.close) window.$flux.popover.close();
+        });
     </script>
 </div>

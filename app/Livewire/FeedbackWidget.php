@@ -155,4 +155,15 @@ foreach ($this->uploads as $file) {
     {
         return view('livewire.feedback-widget');
     }
+
+    public function searchMentions(string $q = ''): array
+    {
+    return \App\Models\User::query()
+        ->when($q !== '', fn($qq) => $qq->where('name', 'like', $q.'%'))
+        ->orderBy('name')
+        ->limit(8)
+        ->get(['id','name','email'])
+        ->map(fn($u) => ['id'=>$u->id, 'name'=>$u->name, 'email'=>$u->email])
+        ->all();
+}
 }

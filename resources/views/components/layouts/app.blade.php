@@ -92,74 +92,218 @@
 @fluxScripts
 
 <script>
-document.addEventListener('alpine:init', () => {
-  window.JIRA_SHORTCUTS = window.JIRA_SHORTCUTS || {
-    '/': '✅',
-    'x': '❌',
-    'y': '👍',
-    'tick': '✅',
-    'check': '✅',
-    'yes': '✅',
-    'no': '❌',
+/**
+ * Global helper: Jira shortcuts + Mentions with ID-based de-duplication,
+ * formatted insert (@First Last), and client-side filtering as you type.
+ *
+ * Usage on any input/textarea:
+ *   x-data="textAssist({ fetchMentions: (q) => $wire.call('searchMentions', q) })"
+ *   x-on:keydown="onKeydown($event)"
+ *   x-on:input.debounce.120ms="detectMentions"
+ */
+window.textAssist = function (opts = {}) {
+  const fetchMentions  = typeof opts.fetchMentions === 'function' ? opts.fetchMentions : async () => [];
+  const uniqueMentions = opts.uniqueMentions !== false; // default true
+  const mentionKey     = typeof opts.mentionKey === 'function'
+                         ? opts.mentionKey
+                         : (u) => (u?.name || u?.email || 'user');
+
+  // Track which user IDs we already inserted in THIS field instance
+  const mentionedIds = new Set();
+
+  // Jira quick tokens
+  const TOKEN_MAP = { '/': '✅', 'x': '❌', 'y': '👍' };
+
+  // Mentions regex (unicode letters + marks + dot/hyphen/space)
+  const MENTION_ACTIVE_RE = /@([\p{L}\p{M}.\- ]{0,50})$/u;
+
+  // Normalize: lowercase, strip diacritics, collapse spaces
+  const norm = (s) =>
+    String(s || '')
+      .toLowerCase()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/\s+/g, ' ')
+      .trim();
+
+  const toTitle = (s) =>
+    String(s || '')
+      .trim()
+      .replace(/\s+/g, ' ')
+      .toLowerCase()
+      .replace(/\b\p{L}/gu, ch => ch.toUpperCase());
+
+  const handleFor = (u) => toTitle(mentionKey(u));
+
+  // Client-side filter against query across name & email
+  const filterByQuery = (items, q) => {
+    const nq = norm(q);
+    if (!nq) return items;
+    return items.filter(u => {
+      const nName  = norm(u?.name);
+      const nEmail = norm(u?.email);
+      const nKey   = norm(mentionKey(u));
+      return (nName && nName.includes(nq)) ||
+             (nEmail && nEmail.includes(nq)) ||
+             (nKey && nKey.includes(nq));
+    });
   };
 
-  // Universal, model-agnostic helper
-  Alpine.data('jiraBox', () => ({
-    _target: null,
-    init() {
-      // use the element itself if it's a text input/textarea,
-      // otherwise the first descendant textarea/input
-      this._target = this.$el.matches('textarea,input')
-        ? this.$el
-        : this.$el.querySelector('textarea, input');
+  return {
+    // Mentions state
+    open: false,
+    results: [],
+    highlight: 0,
+    query: '',
+    range: null,
+    lastSig: '',
+
+    // --- Field helpers ---
+    field()  { return this.$refs.field || this.$el; },
+    getVal() { const el = this.field(); return (el && el.value != null) ? el.value : ''; },
+    setVal(v){
+      const el = this.field(); if (!el) return;
+      el.value = v;
+      // best-effort Livewire sync if wire:model / wire:model.defer present
+      try {
+        const k = this.$el.getAttribute('wire:model') || this.$el.getAttribute('wire:model.defer');
+        if (k && this.$wire?.set) this.$wire.set(k, v);
+      } catch {}
     },
-    onKeydown(e) {
-      if (![' ', 'Enter', 'Tab'].includes(e.key)) return;
+    caret(){
+      const el = this.field();
+      try { return el?.selectionStart ?? 0; } catch { return (this.getVal() || '').length; }
+    },
+    setCaret(pos){ const el = this.field(); try { el?.focus(); el?.setSelectionRange(pos,pos); } catch {} },
 
-      const el = this._target || e.target;
-      if (!el) return;
-
-      const tag = el.tagName;
-      const type = (el.type || 'text').toLowerCase();
-      const isTextual = tag === 'TEXTAREA' || (tag === 'INPUT' && ['text','search','url','tel'].includes(type));
-      if (!isTextual) return;
-
-      const pos = el.selectionStart ?? 0;
-      const val = el.value ?? '';
+    // --- Jira token replacement ---
+    replaceJiraToken(triggerKey){
+      const val = this.getVal();
+      const pos = this.caret();
       const leftRaw = val.slice(0, pos);
-      const right   = val.slice(pos);
-
       const ws = leftRaw.match(/[ \t\r\n]+$/);
       const trailing = ws ? ws[0] : '';
       const left = trailing ? leftRaw.slice(0, leftRaw.length - trailing.length) : leftRaw;
 
       const m = left.match(/\(([^\s()]{1,10})\)$/i);
-      if (!m) return;
+      if (!m) return false;
 
       const key = (m[1] || '').toLowerCase();
-      const emoji = (window.JIRA_SHORTCUTS || {})[key];
-      if (!emoji) return;
+      const emoji = TOKEN_MAP[key];
+      if (!emoji) return false;
 
-      e.preventDefault();
-
-      const trigger = e.key === ' ' ? ' ' : (e.key === 'Enter' ? '\n' : '\t');
       const newLeft = left.slice(0, left.length - m[0].length) + emoji;
-      const newVal  = newLeft + trailing + trigger + right;
+      let trigger = '';
+      if (triggerKey === ' ') trigger = ' ';
+      else if (triggerKey === 'Enter') trigger = '\n';
+      else if (triggerKey === 'Tab') trigger = '\t';
 
-      el.value = newVal;
+      const newVal = newLeft + trailing + trigger + val.slice(pos);
+      this.setVal(newVal);
+      this.setCaret((newLeft + trailing + trigger).length);
+      return true;
+    },
 
-      // Let Livewire (or vanilla forms) react naturally
-      el.dispatchEvent(new Event('input',  { bubbles: true }));
-      el.dispatchEvent(new Event('change', { bubbles: true }));
+    // --- Mentions detection ---
+    async detectMentions(){
+      const v   = this.getVal();
+      const sig = v + '|' + this.caret();
+      if (sig === this.lastSig) return;
+      this.lastSig = sig;
 
-      const newPos = (newLeft + trailing + trigger).length;
-      try { el.setSelectionRange(newPos, newPos); } catch (_) {}
-    }
-  }));
-});
+      // find active @ token left of caret
+      const left = v.slice(0, this.caret());
+      const m = left.match(MENTION_ACTIVE_RE);
+      if (!m) { this.close(); return; }
+
+      this.query = (m[1] || '').trim();
+      this.range = { start: left.length - m[0].length, end: this.caret() };
+      this.highlight = 0;
+
+      // fetch suggestions (server), then filter (client), then dedupe
+      try {
+        const res = await fetchMentions(this.query);
+        let arr = Array.isArray(res) ? res : [];
+
+        // Client-side filtering as you type (name/email/handle)
+        arr = filterByQuery(arr, this.query);
+
+        // De-duplicate per ID (or fallback to handle) against already mentioned
+        if (uniqueMentions) {
+          arr = arr.filter(u => {
+            const id = (u && (u.id ?? u.ID ?? u.user_id));
+            if (id != null) return !mentionedIds.has(String(id));
+            // fallback: prevent exact same handle if item truly has no id
+            const h = norm(handleFor(u));
+            // If some users with the same name DO have IDs and are already mentioned,
+            // we still want to allow other distinct IDs. This check only blocks id-less exact handle duplicates.
+            const alreadyByHandle = [...mentionedIds].some(() => false); // no-op when we only track IDs
+            return !alreadyByHandle && !!h;
+          });
+        }
+
+        // Limit list (optional): arr = arr.slice(0, 8);
+        this.results = arr;
+        this.open = this.results.length > 0;
+      } catch {
+        this.results = [];
+        this.open = false;
+      }
+    },
+
+    close(){ this.open = false; this.results = []; this.query = ''; this.range = null; },
+
+    // --- Insert a mention (ID-based unique, formatted) ---
+    pick(user){
+      if (!this.range) return;
+
+      const id = (user && (user.id ?? user.ID ?? user.user_id));
+      const handle = handleFor(user);
+      if (!handle) { this.close(); return; }
+
+      if (uniqueMentions) {
+        if (id != null && mentionedIds.has(String(id))) { this.close(); return; }
+        if (id == null) {
+          // fallback: if no id, prevent exact same handle twice
+          const val = this.getVal();
+          const escaped = handle.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
+          const re = new RegExp(`(^|\\s)@${escaped}(\\s|$)`, 'i');
+          if (re.test(val)) { this.close(); return; }
+        }
+      }
+
+      const at = '@' + handle;
+      const v  = this.getVal();
+      const newVal = v.slice(0, this.range.start) + at + ' ' + v.slice(this.range.end);
+      this.setVal(newVal);
+      this.setCaret(this.range.start + at.length + 1);
+
+      if (id != null) mentionedIds.add(String(id));
+      this.close();
+    },
+
+    // --- Keyboard handling for both Jira + mentions ---
+    onKeydown(e){
+      // Jira shortcuts
+      if ([' ', 'Enter', 'Tab'].includes(e.key)) {
+        if (this.replaceJiraToken(e.key)) { e.preventDefault(); return; }
+      }
+
+      // Mentions navigation
+      if (this.open) {
+        if (e.key === 'ArrowDown') { this.highlight = Math.min(this.highlight + 1, Math.max(this.results.length - 1, 0)); e.preventDefault(); return; }
+        if (e.key === 'ArrowUp')   { this.highlight = Math.max(this.highlight - 1, 0); e.preventDefault(); return; }
+        if (e.key === 'Enter')     { e.preventDefault(); const pick = this.results[this.highlight] || this.results[0]; if (pick) this.pick(pick); return; }
+        if (e.key === 'Escape')    { this.close(); e.preventDefault(); return; }
+      }
+
+      queueMicrotask(() => this.detectMentions());
+    },
+
+    init(){ this.detectMentions(); }
+  };
+};
 </script>
-
-
 
 </body>
 </html>

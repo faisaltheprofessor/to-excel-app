@@ -237,13 +237,57 @@
             {{-- Title/Message view or editor --}}
             @if($editingFeedback)
                 <div class="space-y-3">
-                    <input type="text" wire:model.defer="editTitle"
-                           class="w-full rounded-md border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 p-2"
-                           placeholder="Titel" />
-                    <textarea rows="6" wire:model.defer="editMessage" x-data="jiraBox('reply')"
-  x-on:keydown="onKeydown($event)"
-                              class="w-full rounded-md border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 p-2"
-                              placeholder="Beschreibung"></textarea>
+                    {{-- Edit Title with Mentions/Jira --}}
+                    <div class="relative"
+                         x-data="textAssist({ fetchMentions: (q) => $wire.call('searchMentions', q) })">
+                        <input type="text"
+                               wire:model.defer="editTitle"
+                               x-ref="field"
+                               x-on:input.debounce.120ms="detectMentions"
+                               x-on:keydown="onKeydown($event)"
+                               class="w-full rounded-md border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 p-2"
+                               placeholder="Titel" />
+                        <template x-if="open">
+                            <div class="mention-menu absolute left-0 bg-white dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-lg mt-1 w-80 shadow z-50"
+                                 x-on:click.outside="close">
+                                <template x-for="(u,i) in results" :key="u.id ?? i">
+                                    <div class="mention-item px-3 py-2 cursor-pointer"
+                                         :class="{'bg-blue-50 dark:bg-zinc-700': i===highlight}"
+                                         x-on:mouseenter="highlight=i"
+                                         x-on:click="pick(u)">
+                                        <div class="font-medium" x-text="'@' + (u.name || u.email || 'user')"></div>
+                                        <div class="text-xs text-gray-500 dark:text-gray-400" x-text="u.email || ''"></div>
+                                    </div>
+                                </template>
+                            </div>
+                        </template>
+                    </div>
+
+                    {{-- Edit Description with Mentions/Jira --}}
+                    <div class="relative"
+                         x-data="textAssist({ fetchMentions: (q) => $wire.call('searchMentions', q) })">
+                        <textarea rows="6"
+                                  wire:model.defer="editMessage"
+                                  x-ref="field"
+                                  x-on:input.debounce.120ms="detectMentions"
+                                  x-on:keydown="onKeydown($event)"
+                                  class="w-full rounded-md border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 p-2"
+                                  placeholder="Beschreibung"></textarea>
+                        <template x-if="open">
+                            <div class="mention-menu absolute left-0 bg-white dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-lg mt-1 w-80 shadow z-50"
+                                 x-on:click.outside="close">
+                                <template x-for="(u,i) in results" :key="u.id ?? i">
+                                    <div class="mention-item px-3 py-2 cursor-pointer"
+                                         :class="{'bg-blue-50 dark:bg-zinc-700': i===highlight}"
+                                         x-on:mouseenter="highlight=i"
+                                         x-on:click="pick(u)">
+                                        <div class="font-medium" x-text="'@' + (u.name || u.email || 'user')"></div>
+                                        <div class="text-xs text-gray-500 dark:text-gray-400" x-text="u.email || ''"></div>
+                                    </div>
+                                </template>
+                            </div>
+                        </template>
+                    </div>
 
                     {{-- Existing ticket attachments with remove --}}
                     @php $existing = is_array($feedback->attachments ?? null) ? $feedback->attachments : []; @endphp
@@ -407,13 +451,34 @@
                         sticky top-0 z-10 bg-white/90 dark:bg-zinc-900/90 backdrop-blur supports-[backdrop-filter]:bg-white/60
                         -mx-6 px-6 pt-2 pb-3 border-b border-zinc-200/60 dark:border-zinc-700/50">
                 <div class="space-y-2" x-data="filePicker('replyUploads')">
-                    <textarea rows="3" wire:model.defer="reply"
-                              x-data="jiraBox('reply')"
-  x-on:keydown="onKeydown($event)"
-                              placeholder="{{ $canInteract ? 'Antwort schreiben … (mit @Namen erwähnen)' : 'Geschlossen – keine Kommentare möglich' }}"
-                              class="w-full rounded-md border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 p-2"
-                              {{ $canInteract ? '' : 'disabled' }}></textarea>
-                    @error('reply') <div class="text-sm text-red-600">{{ $message }}</div> @enderror
+                    {{-- Composer textarea with Mentions/Jira --}}
+                    <div class="relative"
+                         x-data="textAssist({ fetchMentions: (q) => $wire.call('searchMentions', q) })">
+                        <textarea rows="3"
+                                  wire:model.defer="reply"
+                                  x-ref="field"
+                                  x-on:input.debounce.120ms="detectMentions"
+                                  x-on:keydown="onKeydown($event)"
+                                  placeholder="{{ $canInteract ? 'Antwort schreiben … (mit @Namen erwähnen)' : 'Geschlossen – keine Kommentare möglich' }}"
+                                  class="w-full rounded-md border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 p-2"
+                                  {{ $canInteract ? '' : 'disabled' }}></textarea>
+                        @error('reply') <div class="text-sm text-red-600">{{ $message }}</div> @enderror
+
+                        <template x-if="open">
+                            <div class="mention-menu absolute left-0 bg-white dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-lg mt-1 w-80 shadow z-50"
+                                 x-on:click.outside="close">
+                                <template x-for="(u,i) in results" :key="u.id ?? i">
+                                    <div class="mention-item px-3 py-2 cursor-pointer"
+                                         :class="{'bg-blue-50 dark:bg-zinc-700': i===highlight}"
+                                         x-on:mouseenter="highlight=i"
+                                         x-on:click="pick(u)">
+                                        <div class="font-medium" x-text="'@' + (u.name || u.email || 'user')"></div>
+                                        <div class="text-xs text-gray-500 dark:text-gray-400" x-text="u.email || ''"></div>
+                                    </div>
+                                </template>
+                            </div>
+                        </template>
+                    </div>
 
                     <div class="flex items-center justify-between">
                         <div class="flex items-center gap-2">
@@ -541,7 +606,6 @@ function filePicker(model) {
         },
         remove(i) { this.files.splice(i, 1); this.sync(); },
         sync() {
-            // merge locally picked files into Livewire's array instead of replacing it
             this.$wire.uploadMultiple(model, this.files, () => {}, () => {});
         }
     };
