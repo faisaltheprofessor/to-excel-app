@@ -4,20 +4,20 @@ namespace App\Livewire;
 
 use App\Models\Feedback;
 use App\Models\User;
+use Livewire\Attributes\Computed;
+use Livewire\Attributes\On;
 use Livewire\Component;
 
 class FeedbackKanban extends Component
 {
-    /** Right pane control (entangled with Alpine) */
     public ?int $selectedId = null;
     public ?Feedback $selectedFeedback = null;
 
-    // Filters
-    public array $assigneeFilter = []; // ['me','none', <userId>...]
+    public array $assigneeFilter = [];
     public string $assigneeSearch = '';
-    public array $priorityFilter = []; // ['low','normal','high','urgent']
-    public array $typeFilter = [];     // ['bug','suggestion','feedback','question']
-    public array $tagFilter = [];      // OR behavior
+    public array $priorityFilter = [];
+    public array $typeFilter = [];
+    public array $tagFilter = [];
 
     public int $numberOfTickets = 0;
 
@@ -25,21 +25,19 @@ class FeedbackKanban extends Component
     {
         $this->numberOfTickets = Feedback::count();
     }
-    /** Select */
+
     public function selectTicket(int $id): void
     {
         $this->selectedId = $id;
         $this->selectedFeedback = Feedback::with(['user','assignee'])->find($id);
     }
 
-    /** Close right pane */
     public function closePanel(): void
     {
         $this->selectedId = null;
         $this->selectedFeedback = null;
     }
 
-    /** Drag & drop */
     public function moveTicket(int $ticketId, string $newStatus): void
     {
         if (!in_array($newStatus, Feedback::STATUSES, true)) return;
@@ -58,22 +56,19 @@ class FeedbackKanban extends Component
         }
     }
 
-    #[\Livewire\Attributes\Computed]
+    #[Computed]
     public function users()
     {
         return User::query()
             ->when($this->assigneeSearch, fn($q) =>
-            $q->where('name', 'like', '%'.$this->assigneeSearch.'%')
+                $q->where('name', 'like', '%'.$this->assigneeSearch.'%')
             )
             ->orderBy('name')
             ->limit(20)
             ->get(['id','name']);
     }
 
-    /**
-     * Build columns with lightweight card arrays so the Blade is simple and fast.
-     */
-    #[\Livewire\Attributes\Computed]
+    #[Computed]
     public function columns(): array
     {
         $statusTitles = [
@@ -104,7 +99,6 @@ class FeedbackKanban extends Component
                 ->with(['assignee'])
                 ->where('status', $status);
 
-            // Assignee filter (OR)
             if (!empty($this->assigneeFilter)) {
                 $vals = $this->assigneeFilter;
                 $q->where(function ($w) use ($vals) {
@@ -120,17 +114,14 @@ class FeedbackKanban extends Component
                 });
             }
 
-            // Priority (OR)
             if (!empty($this->priorityFilter)) {
                 $q->whereIn('priority', $this->priorityFilter);
             }
 
-            // Type (OR)
             if (!empty($this->typeFilter)) {
                 $q->whereIn('type', $this->typeFilter);
             }
 
-            // Tags (OR between selected tags)
             if (!empty($this->tagFilter)) {
                 $tags = $this->tagFilter;
                 $q->where(function ($sub) use ($tags) {
@@ -161,6 +152,14 @@ class FeedbackKanban extends Component
         }
 
         return $cols;
+    }
+
+    #[On('ticket-deleted')]
+    public function onTicketDeleted(int $id): void
+    {
+        if ($this->selectedId === $id) {
+            $this->closePanel();
+        }
     }
 
     public function render()

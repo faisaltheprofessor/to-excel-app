@@ -8,7 +8,7 @@ use App\Models\FeedbackReaction;
 use App\Models\FeedbackEdit;
 use App\Models\FeedbackCommentEdit;
 use App\Models\User;
-use Flux; // <<— for Flux::toast(...)
+use Flux;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Storage;
 use Livewire\Attributes\Validate;
@@ -22,36 +22,29 @@ class FeedbackShow extends Component
     public Feedback $feedback;
     public bool $nested = false;
 
-    // composer
     #[Validate('required|string|min:1|max:5000')]
     public string $reply = '';
     public ?int $replyTo = null;
 
-    /** Reply attachments */
-    /** @var array<\Livewire\Features\SupportFileUploads\TemporaryUploadedFile> */
     public array $replyUploads = [];
 
-    public string $commentSort = 'newest'; // 'newest' | 'oldest'
+    public string $commentSort = 'newest';
 
-    // meta
     public string $status = 'open';
-    public string $priority = 'medium'; // low|medium|high|critical
-    public string $type = 'bug';        // bug|suggestion
+    public string $priority = 'medium';
+    public string $type = 'bug';
     public ?int $assigneeId = null;
 
     public array $tags = [];
     public string $tagInput = '';
 
-    // reactions
     public array $quickEmojis = ['👍', '❤️', '🎉', '🚀', '👀'];
     public array $reactionHover = [];
 
-    // mentions
     public string $mentionQuery = '';
     public array $mentionResults = [];
     public bool $mentionOpen = false;
 
-    // permissions
     public bool $canModifyFeedback = false;
     public bool $canInteract = true;
     public bool $canEditStatus = false;
@@ -59,44 +52,35 @@ class FeedbackShow extends Component
     public bool $canEditAssignee = false;
     public bool $canEditType = false;
 
-    // meta-dirty
     public bool $metaDirty = false;
     public string $previousStatus = 'open';
     public ?int $previousAssigneeId = null;
     public string $previousPriority = 'medium';
     public string $previousType = 'bug';
 
-    // inline edit: feedback
     public bool $editingFeedback = false;
     public string $editTitle = '';
     public string $editMessage = '';
 
-    /** Ticket edit: add new files & remove existing ones */
-    public array $editUploads = [];                 // new uploads (TemporaryUploadedFile[])
-    public array $removeFeedbackAttachmentIdx = []; // int[] of existing attachments to remove
+    public array $editUploads = [];
+    public array $removeFeedbackAttachmentIdx = [];
 
-    // inline edit: comment
     public ?int $editingCommentId = null;
     public string $editingCommentBody = '';
-    public array $editingCommentUploads = [];       // new uploads during comment edit
-    public array $removeCommentAttachmentIdx = [];  // int[] to remove from existing
+    public array $editingCommentUploads = [];
+    public array $removeCommentAttachmentIdx = [];
 
-    // history indicators
     public bool $feedbackEdited = false;
     public array $commentEditedMap = [];
 
-    // history modal
     public bool $showHistoryModal = false;
     public string $historyTitle = '';
     public string $historyHtml = '';
 
-    // close-warning modal
     public bool $showCloseModal = false;
 
-    // delete confirm modal
     public bool $showDeleteConfirm = false;
 
-    // assignment dropdown
     public array $assignableUsers = [];
 
     public function mount(Feedback $feedback): void
@@ -169,7 +153,6 @@ class FeedbackShow extends Component
         return $dirtyStatus || $dirtyPriority || $dirtyType || $dirtyAssignee;
     }
 
-    // ---------- Upload validation helpers ----------
     private function validateUploadsArray(array &$files, string $prefixForErrors = 'uploads'): void
     {
         $maxImage  = 10 * 1024 * 1024;
@@ -217,7 +200,6 @@ class FeedbackShow extends Component
         return $out;
     }
 
-    // ---------- Comments ----------
     public function setReplyTo(?int $commentId = null): void
     {
         if ($this->canInteract) $this->replyTo = $commentId;
@@ -234,7 +216,7 @@ class FeedbackShow extends Component
     public function send(): void
     {
         if (!$this->canInteract) return;
-        $this->validate(); // validates 'reply'
+        $this->validate();
         $this->validateUploadsArray($this->replyUploads, 'replyUploads');
 
         $stored = $this->storeFiles($this->replyUploads, 'comments');
@@ -265,7 +247,6 @@ class FeedbackShow extends Component
         }
     }
 
-    // ----- Mentions -----
     public function updatedMentionQuery(): void
     {
         $q = trim($this->mentionQuery);
@@ -275,9 +256,9 @@ class FeedbackShow extends Component
             ->map(fn($u)=>['id'=>$u->id,'name'=>$u->name,'email'=>$u->email])->all();
         $this->mentionOpen = !empty($this->mentionResults);
     }
+
     public function closeMentions(): void { $this->mentionOpen=false; }
 
-    // ----- Reactions -----
     public function toggleReaction(string $emoji,?int $commentId=null): void
     {
         if(!$this->canInteract)return;
@@ -288,6 +269,7 @@ class FeedbackShow extends Component
         else FeedbackReaction::create(['feedback_id'=>$this->feedback->id,'comment_id'=>$commentId,'user_id'=>$uid,'emoji'=>$emoji]);
         $this->dispatch('$refresh');
     }
+
     public function loadReactionUsers(string $emoji,?int $commentId=null): void
     {
         $key=$emoji.'|'.($commentId??'null');
@@ -297,7 +279,6 @@ class FeedbackShow extends Component
         $this->reactionHover[$key]=['names'=>$rows->map(fn($r)=>optional($r->user)->name??'Unbekannt')->values()->all()];
     }
 
-    // ----- Tags -----
     protected function persistTags(): void
     {
         if(!$this->canInteract) return;
@@ -324,7 +305,6 @@ class FeedbackShow extends Component
         $this->persistTags();
     }
 
-    // ----- Meta -----
     public function updatedStatus(string $v): void { if(!$this->canEditStatus){$this->status=$this->feedback->status??'open';return;} if($v==='closed')$this->showCloseModal=true; $this->metaDirty=$this->isMetaDirty();}
     public function updatedPriority(string $v): void { if(!$this->canEditPriority){$this->priority=$this->feedback->priority??'medium';return;} $this->metaDirty=$this->isMetaDirty();}
     public function updatedAssigneeId($v): void { if(!$this->canEditAssignee){$this->assigneeId=$this->feedback->assigned_to_id;return;} $this->metaDirty=$this->isMetaDirty();}
@@ -378,12 +358,10 @@ class FeedbackShow extends Component
             $this->recomputePermissions();
             $this->metaDirty=$this->isMetaDirty();
 
-            // Toast instead of notify banner
             Flux::toast(variant: 'success', heading: 'Gespeichert', text: 'Änderungen gespeichert.');
         }
     }
 
-    // ----- Feedback edit -----
     public function startEditFeedback(): void
     {
         if(!$this->canModifyFeedback) return;
@@ -464,11 +442,9 @@ class FeedbackShow extends Component
         $this->feedback->refresh();
         $this->metaDirty = $this->isMetaDirty();
 
-        // Toast after edit
         Flux::toast(variant: 'success', heading: 'Aktualisiert', text: "Ticket #{$this->feedback->id} aktualisiert.");
     }
 
-    // ----- Comment edit -----
     public function startEditComment(int $id): void
     {
         if(!$this->canInteract)return;
@@ -547,26 +523,26 @@ class FeedbackShow extends Component
         $this->editingCommentUploads = [];
         $this->removeCommentAttachmentIdx = [];
 
-        // Toast after comment edit
         Flux::toast(variant: 'success', heading: 'Aktualisiert', text: 'Kommentar aktualisiert.');
 
         $this->dispatch('$refresh');
     }
 
-    // ----- Delete / Restore -----
     public function askDelete(): void { if($this->canModifyFeedback && is_null($this->feedback->deleted_at)) $this->showDeleteConfirm=true; }
     public function cancelDelete(): void { $this->showDeleteConfirm=false; }
 
     public function confirmDelete(): void
     {
         if(!$this->canModifyFeedback||!is_null($this->feedback->deleted_at))return;
+        $deletedId = $this->feedback->id;
         $this->feedback->delete();
-        $this->feedback = Feedback::withTrashed()->findOrFail($this->feedback->id);
+        $this->feedback = Feedback::withTrashed()->findOrFail($deletedId);
         $this->recomputePermissions();
         $this->showDeleteConfirm=false;
 
-        // Toast after delete
-        Flux::toast(variant: 'success', heading: 'Gelöscht', text: "Ticket #{$this->feedback->id} gelöscht.");
+        $this->dispatch('ticket-deleted', id: $deletedId);
+
+        Flux::toast(variant: 'success', heading: 'Gelöscht', text: "Ticket #{$deletedId} gelöscht.");
     }
 
     public function restoreFeedback(): void
@@ -576,11 +552,9 @@ class FeedbackShow extends Component
         $this->feedback=Feedback::withTrashed()->findOrFail($this->feedback->id);
         $this->recomputePermissions();
 
-        // Toast after restore (keeps UI consistent)
         Flux::toast(variant: 'success', heading: 'Wiederhergestellt', text: "Ticket #{$this->feedback->id} wiederhergestellt.");
     }
 
-    // ----- History -----
     public function openFeedbackHistory(): void
     {
         $rows=FeedbackEdit::with('user:id,name')->where('feedback_id',$this->feedback->id)->orderByDesc('id')->limit(100)->get();

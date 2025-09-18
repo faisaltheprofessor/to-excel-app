@@ -20,7 +20,7 @@ class FeedbackWidget extends Component
     public string $priority = 'normal';
 
     #[Validate([
-        'uploads.*' => 'file|mimes:jpg,jpeg,png,webp,gif,mp4,mov,avi,webm,pdf,doc,docx,xls,xlsx|max:102400'
+        'uploads.*' => 'file|mimes:jpg,jpeg,png,webp,gif,mp4,mov,avi,webm,pdf,doc,docx,xls,xlsx,wmv|max:102400'
     ])]
     public array $uploads = [];
 
@@ -33,7 +33,7 @@ class FeedbackWidget extends Component
             'title'     => 'required|string|min:3|max:200',
             'message'   => 'required|string|min:5|max:5000',
             'priority'  => 'required|in:low,normal,high,urgent',
-            'uploads.*' => 'file|mimes:jpg,jpeg,png,webp,gif,mp4,mov,avi,webm,pdf,doc,docx,xls,xlsx|max:102400',
+            'uploads.*' => 'file|mimes:jpg,jpeg,png,webp,gif,mp4,mov,avi,webm,pdf,doc,docx,xls,xlsx,wmv|max:102400',
         ];
     }
 
