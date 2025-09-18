@@ -2,6 +2,7 @@
 
 use App\Livewire\FeedbackIndex;
 use App\Livewire\FeedbackShow;
+use App\Livewire\FeedbackTrash;
 use App\Livewire\Importer;
 use App\Livewire\TreeEditor;
 use App\Livewire\TreeIndex;
@@ -34,6 +35,7 @@ Route::middleware(['auth'])->group(function () {
 
     // Feedback
     Route::get('/feedback', FeedbackIndex::class)->name('feedback.index');
+    Route::get('/feedback/trash', FeedbackTrash::class)->name('feedback.trash');
     Route::get('/feedback/{feedback}', FeedbackShow::class)->name('feedback.show');
 
     // Private file download for feedback attachments (index = array index)

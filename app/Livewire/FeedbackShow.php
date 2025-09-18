@@ -8,6 +8,7 @@ use App\Models\FeedbackReaction;
 use App\Models\FeedbackEdit;
 use App\Models\FeedbackCommentEdit;
 use App\Models\User;
+use Flux; // <<— for Flux::toast(...)
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Storage;
 use Livewire\Attributes\Validate;
@@ -19,6 +20,7 @@ class FeedbackShow extends Component
     use WithFileUploads;
 
     public Feedback $feedback;
+    public bool $nested = false;
 
     // composer
     #[Validate('required|string|min:1|max:5000')]
@@ -170,10 +172,10 @@ class FeedbackShow extends Component
     // ---------- Upload validation helpers ----------
     private function validateUploadsArray(array &$files, string $prefixForErrors = 'uploads'): void
     {
-        $maxImage  = 10 * 1024 * 1024;  // 10 MB
-        $maxPdf    = 20 * 1024 * 1024;  // 20 MB
-        $maxOffice = 20 * 1024 * 1024;  // 20 MB
-        $maxVideo  = 100 * 1024 * 1024; // 100 MB
+        $maxImage  = 10 * 1024 * 1024;
+        $maxPdf    = 20 * 1024 * 1024;
+        $maxOffice = 20 * 1024 * 1024;
+        $maxVideo  = 100 * 1024 * 1024;
 
         foreach ($files as $i => $file) {
             $mime = $file->getMimeType() ?? '';
@@ -233,8 +235,6 @@ class FeedbackShow extends Component
     {
         if (!$this->canInteract) return;
         $this->validate(); // validates 'reply'
-
-        // Validate attachments
         $this->validateUploadsArray($this->replyUploads, 'replyUploads');
 
         $stored = $this->storeFiles($this->replyUploads, 'comments');
@@ -244,7 +244,7 @@ class FeedbackShow extends Component
             'user_id'     => Auth::id(),
             'body'        => $this->reply,
             'parent_id'   => $this->replyTo,
-            'attachments' => $stored, // requires json column + cast
+            'attachments' => $stored,
         ]);
 
         $this->reply        = '';
@@ -260,6 +260,7 @@ class FeedbackShow extends Component
         $c = FeedbackComment::where('feedback_id',$this->feedback->id)->where('id',$commentId)->first();
         if ($c && $c->user_id === Auth::id()) {
             $c->delete();
+            Flux::toast(variant: 'success', heading: 'Gelöscht', text: 'Kommentar gelöscht.');
             $this->dispatch('$refresh');
         }
     }
@@ -296,10 +297,10 @@ class FeedbackShow extends Component
         $this->reactionHover[$key]=['names'=>$rows->map(fn($r)=>optional($r->user)->name??'Unbekannt')->values()->all()];
     }
 
-    // ----- Tags (now allowed for any user while ticket is open) -----
+    // ----- Tags -----
     protected function persistTags(): void
     {
-        if(!$this->canInteract) return; // allow on any open ticket
+        if(!$this->canInteract) return;
         $clean = array_values(array_unique(array_filter(array_map('trim',$this->tags))));
         $this->feedback->update(['tags'=>$clean]);
         $this->tags = $clean;
@@ -308,7 +309,7 @@ class FeedbackShow extends Component
 
     public function addTag(?string $t=null): void
     {
-        if(!$this->canInteract) return; // allow on any open ticket
+        if(!$this->canInteract) return;
         $t = trim($t??$this->tagInput??''); if($t==='') return;
         $this->tags = array_values(array_unique([...$this->tags, $t]));
         $this->tagInput = '';
@@ -317,7 +318,7 @@ class FeedbackShow extends Component
 
     public function removeTag(int $index): void
     {
-        if(!$this->canInteract) return; // allow on any open ticket
+        if(!$this->canInteract) return;
         unset($this->tags[$index]);
         $this->tags = array_values($this->tags);
         $this->persistTags();
@@ -376,7 +377,9 @@ class FeedbackShow extends Component
 
             $this->recomputePermissions();
             $this->metaDirty=$this->isMetaDirty();
-            $this->dispatch('notify',body:'Änderungen gespeichert.');
+
+            // Toast instead of notify banner
+            Flux::toast(variant: 'success', heading: 'Gespeichert', text: 'Änderungen gespeichert.');
         }
     }
 
@@ -402,7 +405,6 @@ class FeedbackShow extends Component
 
     public function removeExistingFeedbackAttachment(int $idx): void
     {
-        // we mark it for removal and render UI accordingly
         $this->removeFeedbackAttachmentIdx[$idx] = true;
     }
 
@@ -423,7 +425,6 @@ class FeedbackShow extends Component
             'editMessage' => 'required|string|min:1|max:10000',
         ]);
 
-        // filter out removed existing attachments
         $existing = is_array($this->feedback->attachments ?? null) ? $this->feedback->attachments : [];
         $kept = [];
         foreach ($existing as $i => $row) {
@@ -432,16 +433,15 @@ class FeedbackShow extends Component
             }
         }
 
-        // validate + store new uploads
         $this->validateUploadsArray($this->editUploads, 'editUploads');
         $storedNew = $this->storeFiles($this->editUploads, 'ticket-edits');
 
         $finalAttachments = array_values([...$kept, ...$storedNew]);
 
         $changes = [];
-        if (($this->feedback->title ?? '') !== $data['editTitle'])   $changes['title']   = [$this->feedback->title, $data['editTitle']];
+        if (($this->feedback->title ?? '') !== $data['editTitle'])     $changes['title'] = [$this->feedback->title, $data['editTitle']];
         if (($this->feedback->message ?? '') !== $data['editMessage']) $changes['message'] = [$this->feedback->message, $data['editMessage']];
-        if (json_encode($existing) !== json_encode($finalAttachments)) $changes['attachments'] = ['count:'.count($existing), 'count:'.count($finalAttachments)];
+        if (json_encode($existing) !== json_encode($finalAttachments))  $changes['attachments'] = ['count:'.count($existing), 'count:'.count($finalAttachments)];
 
         if(!empty($changes)){
             $this->feedback->update([
@@ -463,6 +463,9 @@ class FeedbackShow extends Component
         $this->editingFeedback = false;
         $this->feedback->refresh();
         $this->metaDirty = $this->isMetaDirty();
+
+        // Toast after edit
+        Flux::toast(variant: 'success', heading: 'Aktualisiert', text: "Ticket #{$this->feedback->id} aktualisiert.");
     }
 
     // ----- Comment edit -----
@@ -544,27 +547,37 @@ class FeedbackShow extends Component
         $this->editingCommentUploads = [];
         $this->removeCommentAttachmentIdx = [];
 
+        // Toast after comment edit
+        Flux::toast(variant: 'success', heading: 'Aktualisiert', text: 'Kommentar aktualisiert.');
+
         $this->dispatch('$refresh');
     }
 
     // ----- Delete / Restore -----
     public function askDelete(): void { if($this->canModifyFeedback && is_null($this->feedback->deleted_at)) $this->showDeleteConfirm=true; }
     public function cancelDelete(): void { $this->showDeleteConfirm=false; }
+
     public function confirmDelete(): void
     {
         if(!$this->canModifyFeedback||!is_null($this->feedback->deleted_at))return;
         $this->feedback->delete();
-        $this->feedback=Feedback::withTrashed()->findOrFail($this->feedback->id);
-        $this->recomputePermissions(); $this->showDeleteConfirm=false;
-        $this->dispatch('notify',body:'Feedback gelöscht. Du kannst es wiederherstellen.');
+        $this->feedback = Feedback::withTrashed()->findOrFail($this->feedback->id);
+        $this->recomputePermissions();
+        $this->showDeleteConfirm=false;
+
+        // Toast after delete
+        Flux::toast(variant: 'success', heading: 'Gelöscht', text: "Ticket #{$this->feedback->id} gelöscht.");
     }
+
     public function restoreFeedback(): void
     {
         if($this->feedback->user_id!==Auth::id())return;
         $this->feedback->restore();
         $this->feedback=Feedback::withTrashed()->findOrFail($this->feedback->id);
         $this->recomputePermissions();
-        $this->dispatch('notify',body:'Feedback wiederhergestellt.');
+
+        // Toast after restore (keeps UI consistent)
+        Flux::toast(variant: 'success', heading: 'Wiederhergestellt', text: "Ticket #{$this->feedback->id} wiederhergestellt.");
     }
 
     // ----- History -----

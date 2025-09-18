@@ -11,6 +11,9 @@
     @fluxAppearance
 </head>
 <body class="min-h-screen bg-white dark:bg-zinc-800">
+
+
+
 <flux:header container class="bg-zinc-50 dark:bg-zinc-900 border-b border-zinc-200 dark:border-zinc-700">
     <flux:sidebar.toggle class="lg:hidden" icon="bars-2" inset="left"/>
 
@@ -79,6 +82,9 @@
 
     <flux:text class="mt-2 mb-6 text-base">Importer-Datei leicht gemacht</flux:text>
     </div>
+       <flux:toast.group position="top end pt-24" >
+            <flux:toast />
+       </flux:toast.group>
 
     {{ $slot }}
     <flux:separator variant="subtle"/>
@@ -360,6 +366,7 @@ window.textAssist = function (opts = {}) {
   };
 };
 </script>
+
 
 
 </body>

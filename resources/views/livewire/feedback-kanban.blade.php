@@ -3,85 +3,61 @@
     <div class="transition-all duration-200 h-[90%] flex flex-col"
          :class="openPanel ? 'w-1/2' : 'w-full'">
 
-        {{-- FILTER BAR  --}}
+
+        {{-- FILTER BAR --}}
         <div class="p-4 border-b border-zinc-200 dark:border-zinc-700">
-            <div class="flex flex-wrap items-center gap-3">
-                {{-- Assignee --}}
-                <div class="min-w-[240px]">
-                    <flux:select
-                        variant="listbox"
-                        placeholder="Zugewiesen an …"
-                        searchable
-                        multiple
-                        clearable
-                        :filter="false"
-                        wire:model.live="assigneeFilter"
-                    >
-                        <x-slot name="input">
-                            <flux:select.input
-                                wire:model.live="assigneeSearch"
-                                placeholder="Nutzer suchen …"
-                            />
-                        </x-slot>
+            <div class="flex items-center justify-between">
+                <div class="flex flex-wrap items-center gap-3">
+                    {{-- Assignee --}}
+                    <div class="min-w-[240px]">
+                        <flux:select variant="listbox" placeholder="Zugewiesen an …" searchable multiple clearable :filter="false" wire:model.live="assigneeFilter">
+                            <x-slot name="input">
+                                <flux:select.input wire:model.live="assigneeSearch" placeholder="Nutzer suchen …"/>
+                            </x-slot>
+                            <flux:select.option value="none">Unzugewiesen</flux:select.option>
+                            @foreach ($this->users as $user)
+                                <flux:select.option value="{{ $user->id }}" wire:key="assignee-{{ $user->id }}">{{ $user->name }}</flux:select.option>
+                            @endforeach
+                        </flux:select>
+                    </div>
 
-                        <flux:select.option value="none">Unzugewiesen</flux:select.option>
+                    {{-- Priority --}}
+                    <div class="min-w-[200px]">
+                        <flux:select variant="listbox" placeholder="Priorität …" multiple clearable wire:model.live="priorityFilter">
+                            <flux:select.option value="low">Niedrig</flux:select.option>
+                            <flux:select.option value="normal">Normal</flux:select.option>
+                            <flux:select.option value="high">Hoch</flux:select.option>
+                            <flux:select.option value="urgent">Dringend</flux:select.option>
+                        </flux:select>
+                    </div>
 
-                        @foreach ($this->users as $user)
-                            <flux:select.option value="{{ $user->id }}" wire:key="assignee-{{ $user->id }}">
-                                {{ $user->name }}
-                            </flux:select.option>
-                        @endforeach
-                    </flux:select>
+                    {{-- Type --}}
+                    <div class="min-w-[200px]">
+                        <flux:select variant="listbox" placeholder="Typ …" multiple clearable wire:model.live="typeFilter">
+                            <flux:select.option value="bug">Bug</flux:select.option>
+                            <flux:select.option value="suggestion">Feature</flux:select.option>
+                            <flux:select.option value="feedback">Feedback</flux:select.option>
+                            <flux:select.option value="question">Question</flux:select.option>
+                        </flux:select>
+                    </div>
+
+                    {{-- Tags --}}
+                    <div class="min-w-[220px]">
+                        <flux:select variant="listbox" placeholder="Tags …" searchable multiple clearable wire:model.live="tagFilter">
+                            @foreach ($allTags as $tag)
+                                <flux:select.option value="{{ $tag }}">{{ $tag }}</flux:select.option>
+                            @endforeach
+                        </flux:select>
+                    </div>
                 </div>
 
-                {{-- Priority --}}
-                <div class="min-w-[200px]">
-                    <flux:select
-                        variant="listbox"
-                        placeholder="Priorität …"
-                        multiple
-                        clearable
-                        wire:model.live="priorityFilter"
-                    >
-                        <flux:select.option value="low">Niedrig</flux:select.option>
-                        <flux:select.option value="normal">Normal</flux:select.option>
-                        <flux:select.option value="high">Hoch</flux:select.option>
-                        <flux:select.option value="urgent">Dringend</flux:select.option>
-                    </flux:select>
+                <div class="shrink-0">
+                    <a href="{{ route('feedback.trash') }}"
+                       wire:navigate
+                       class="text-sm px-3 py-1.5 rounded border border-zinc-300/70 dark:border-zinc-600 hover:bg-zinc-50 dark:hover:bg-zinc-800">
+                        Gelöschte Tickets
+                    </a>
                 </div>
-
-                {{-- Type --}}
-                <div class="min-w-[200px]">
-                    <flux:select
-                        variant="listbox"
-                        placeholder="Typ …"
-                        multiple
-                        clearable
-                        wire:model.live="typeFilter"
-                    >
-                        <flux:select.option value="bug">Bug</flux:select.option>
-                        <flux:select.option value="suggestion">Feature</flux:select.option>
-                        <flux:select.option value="feedback">Feedback</flux:select.option>
-                        <flux:select.option value="question">Question</flux:select.option>
-                    </flux:select>
-                </div>
-
-                {{-- Tags --}}
-                <div class="min-w-[220px]">
-                    <flux:select
-                        variant="listbox"
-                        placeholder="Tags …"
-                        searchable
-                        multiple
-                        clearable
-                        wire:model.live="tagFilter"
-                    >
-                        @foreach ($allTags as $tag)
-                            <flux:select.option value="{{ $tag }}">{{ $tag }}</flux:select.option>
-                        @endforeach
-                    </flux:select>
-                </div>
-
             </div>
         </div>
 
@@ -183,7 +159,7 @@
 
         <div class="p-4">
             @if($selectedFeedback)
-                @livewire('feedback-show', ['feedback' => $selectedFeedback], key('ticket-'.$selectedFeedback->id))
+                @livewire('feedback-show', ['feedback' => $selectedFeedback, 'nested' => true], key('ticket-'.$selectedFeedback->id))
             @else
                 <div class="text-sm text-zinc-500">Kein Ticket ausgewählt.</div>
             @endif
