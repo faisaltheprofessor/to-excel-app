@@ -8,7 +8,6 @@
 
     $level = count($path);
 
-    // Per-level colors: [border], [icon (light/dark)], [selected bg (light)], [selected bg (dark)]
     $palette = [
         ['border-red-300',    'text-red-500 dark:text-red-300',       'bg-red-100',    'dark:bg-red-900'],
         ['border-orange-300', 'text-orange-500 dark:text-orange-300', 'bg-orange-100', 'dark:bg-orange-900'],
@@ -26,6 +25,9 @@
     $borderClass = $c[0];
     $iconClass   = $c[1];
     $bgSelected  = $c[2] . ' ' . $c[3];
+
+    $enabled     = array_key_exists('enabled', $node) ? (bool) $node['enabled'] : true;
+    $isDisabled  = array_key_exists('enabled', $node) ? !$node['enabled'] : false;
 @endphp
 
 <li
@@ -36,10 +38,8 @@
     data-name='{{ $node['name'] ?? '' }}'
     draggable="true"
 >
-    {{-- BEFORE drop zone (reorder above) --}}
     <div data-dropzone data-pos="before" class="h-2 -mt-1"></div>
 
-    {{-- Make the real tree line clickable (overlay over the border) --}}
     <button
         type="button"
         class="absolute left-0 top-0 bottom-0 w-4 cursor-pointer opacity-0 hover:opacity-20 focus:opacity-20 z-40"
@@ -48,19 +48,19 @@
         wire:click.stop="selectNode({{ json_encode($path) }})"
     ></button>
 
-    {{-- ROW (drop INTO here) --}}
     <div
-        class="relative flex items-center gap-2 cursor-move
+        x-data="{ localDisabled: @js($isDisabled), path: @js($path) }"
+        :class="localDisabled ? 'opacity-80 bg-gray-200 dark:bg-gray-700' : ''"
+        class="relative flex items-center gap-3 cursor-move
                {{ $isSelected ? $bgSelected.' font-semibold' : 'hover:bg-gray-200 dark:hover:bg-gray-600' }}
                rounded px-2 py-1"
         data-dropzone
         data-pos="into"
         wire:click.prevent="selectNode({{ json_encode($path) }})"
+        :aria-disabled="localDisabled ? 'true' : 'false'"
     >
-        {{-- folder icon hue matches level --}}
         <flux:icon.folder class="w-5 h-5 {{ $iconClass }}"/>
 
-        {{-- NAME --}}
         <div class="flex items-center gap-1">
             @if ($isEditingName)
                 <div class="relative">
@@ -73,21 +73,14 @@
                         wire:keydown.escape.stop.prevent="cancelInlineEdit"
                         autofocus
                     />
-                    {{-- bold ✓ and ✕ controls --}}
                     <div class="absolute inset-y-0 right-1 flex items-center gap-1">
                         <button type="button" wire:click.stop="saveInlineEdit" class="p-0.5" title="Speichern">
-                            <flux:icon.check
-                                class="w-5 h-5 text-green-600 dark:text-green-400 cursor-pointer stroke-[2.5]"/>
+                            <flux:icon.check class="w-5 h-5 text-green-600 dark:text-green-400 cursor-pointer stroke-[2.5]"/>
                         </button>
                         <button type="button" wire:click.stop="cancelInlineEdit" class="p-0.5" title="Abbrechen">
-                            <flux:icon.x-mark
-                                class="w-5 h-5 text-red-600 dark:text-red-400 cursor-pointer stroke-[2.5]"/>
+                            <flux:icon.x-mark class="w-5 h-5 text-red-600 dark:text-red-400 cursor-pointer stroke-[2.5]"/>
                         </button>
                     </div>
-
-                    {{--                    @error('editValue')--}}
-                    {{--    <div class="text-xs text-red-600 mt-1">{{ $message }}</div>--}}
-                    {{--@enderror--}}
                 </div>
             @else
                 <span
@@ -100,7 +93,6 @@
             @endif
         </div>
 
-        {{-- APP-NAME --}}
         <div class="flex items-center gap-1">
             <span class="text-xs text-gray-500 dark:text-gray-100">Nscale:</span>
             @if ($isEditingApp)
@@ -114,21 +106,14 @@
                         wire:keydown.escape.stop.prevent="cancelInlineEdit"
                         autofocus
                     />
-                    {{-- bold ✓ and ✕ controls --}}
                     <div class="absolute inset-y-0 right-1 flex items-center gap-1">
                         <button type="button" wire:click.stop="saveInlineEdit" class="p-0.5" title="Speichern">
-                            <flux:icon.check
-                                class="w-5 h-5 text-green-600 dark:text-green-400 cursor-pointer stroke-[2.5]"/>
+                            <flux:icon.check class="w-5 h-5 text-green-600 dark:text-green-400 cursor-pointer stroke-[2.5]"/>
                         </button>
                         <button type="button" wire:click.stop="cancelInlineEdit" class="p-0.5" title="Abbrechen">
-                            <flux:icon.x-mark
-                                class="w-5 h-5 text-red-600 dark:text-red-400 cursor-pointer stroke-[2.5]"/>
+                            <flux:icon.x-mark class="w-5 h-5 text-red-600 dark:text-red-400 cursor-pointer stroke-[2.5]"/>
                         </button>
                     </div>
-                    {{--                    @error('editValue')--}}
-                    {{--    <div class="text-xs text-red-600 mt-1">{{ $message }}</div>--}}
-                    {{--@enderror--}}
-
                 </div>
             @else
                 <span
@@ -141,21 +126,40 @@
             @endif
         </div>
 
-        {{-- DELETE --}}
-        @if ($canDelete)
-            <flux:button
-                wire:click.stop="removeNode({{ json_encode($path) }})"
-                color="danger"
-                size="sm"
-                class="ml-auto"
-            >
-                <flux:icon.trash class="w-4 h-4"/>
-            </flux:button>
-        @endif
+        <div class="ml-auto flex items-center gap-3">
+            @if (array_key_exists('enabled', $node))
+                <div class="flex items-center gap-1">
+                    <input
+                        type="checkbox"
+                        class="form-checkbox cursor-pointer"
+                        x-model="localDisabled"
+                        @click.stop
+                        @change.stop="$nextTick(() => $wire.toggleEnabled(path, localDisabled ? false : true))"
+                    />
+                    <button
+                        type="button"
+                        class="text-xs text-gray-600 dark:text-gray-300 cursor-pointer select-none"
+                        title="Ausblenden / Einblenden"
+                        @click.stop="localDisabled = !localDisabled; $nextTick(() => $wire.toggleEnabled(path, localDisabled ? false : true))"
+                    >
+                        ausgeblendet
+                    </button>
+                </div>
+            @endif
 
+            @if ($canDelete)
+                <flux:button
+                    wire:click.stop="promptDeleteNode({{ json_encode($path) }})"
+                    color="danger"
+                    size="sm"
+                    title="Knoten löschen"
+                >
+                    <flux:icon.trash class="w-4 h-4"/>
+                </flux:button>
+            @endif
+        </div>
     </div>
 
-    {{-- CHILDREN --}}
     @if (!empty($node['children']) && is_array($node['children']))
         <ul class="pl-6 mt-1 space-y-1">
             @foreach ($node['children'] as $childIndex => $childNode)
@@ -167,6 +171,5 @@
         </ul>
     @endif
 
-    {{-- AFTER drop zone (reorder below) --}}
     <div data-dropzone data-pos="after" class="h-2 mb-3"></div>
 </li>

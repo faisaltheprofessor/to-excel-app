@@ -7,42 +7,59 @@ use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Storage;
 use Livewire\Component;
 
+/**
+ * Livewire component for building, editing, validating, and exporting
+ * an organizational tree. Includes rules for auto-generating `appName`,
+ * opt-in `enabled` flags with cascading toggles, and per-node delete confirmation.
+ */
 class TreeEditor extends Component
 {
-    /** Editable tree (raw, no export wrapper) */
+    /** @var array<int, array<string,mixed>> Editable tree (raw, no export wrapper). */
     public $tree = [];
 
-    /** Current tree DB id */
+    /** @var int|null Current tree DB id. */
     public ?int $treeId = null;
 
-    /** Title of the tree/model */
+    /** @var string Title of the tree/model. */
     public string $title = '';
 
-    /** Inputs for adding a node */
+    /** @var string Input for adding a node: name (validated like Windows filename). */
     public $newNodeName = '';
+
+    /** @var string Optional input for adding a node: appName (otherwise generated). */
     public $newAppName = '';
 
-    /** Currently selected node path (array of indexes) */
+    /** @var array<int>|null Currently selected node path (array of indexes). */
     public $selectedNodePath = null;
 
-    /** When true, add a default sub-structure under the new node */
+    /** @var bool When true, add a default sub-structure under the new node. */
     public $addWithStructure = false;
 
-    /** Generated JSON (pretty printed) */
+    /** @var string Generated JSON (pretty printed). */
     public $generatedJson = '';
 
-    /** Download filename for generated Excel */
+    /** @var string Download filename for generated Excel. */
     public string $downloadFilename = '';
 
-    /** Inline edit state */
-    public $editNodePath = null;   // array<int>|null
-    public $editField = null;      // "name" | "appName" | null
+    /** @var array<int>|null Inline edit state: node path. */
+    public $editNodePath = null;
+
+    /** @var "name"|"appName"|null Inline edit state: field name. */
+    public $editField = null;
+
+    /** @var string Inline edit state: value. */
     public $editValue = '';
 
-    /** Pending move (confirmation dialog) */
+    /** @var array<int> Pending move: from path for confirmation dialog. */
     public array $pendingFromPath = [];
+
+    /** @var array<int> Pending move: to path for confirmation dialog. */
     public array $pendingToPath = [];
+
+    /** @var 'into'|'before'|'after' Pending move: relative position. */
     public string $pendingPosition = 'into';
+
+    /** @var string Pending move: readable names & indices (for UI). */
     public string $pendingOldParentName = '';
     public string $pendingNewParentName = '';
     public bool $pendingSameParent = false;
@@ -52,10 +69,22 @@ class TreeEditor extends Component
     public string $pendingOldParentPathStr = '';
     public string $pendingNewParentPathStr = '';
 
-    /** Names that must never be deletable */
+    /**
+     * Per-node delete confirmation state.
+     */
+    public array $confirmDeleteNodePath = [];
+    public string $confirmDeleteNodePathStr = '';
+    public string $confirmDeleteNodeName = '';
+
+    /**
+     * Names that must never be deletable and influence appName composition rules.
+     * Also used by enabled/toggle eligibility heuristics.
+     */
     protected array $fixedNames = ['Ltg', 'Allg', 'AblgOE', 'PoEing', 'SB'];
 
-    /** Default subtree used when "mit Ablagen" is checked */
+    /**
+     * Default subtree used when "mit Ablagen" is checked.
+     */
     protected $predefinedStructure = [
         ['name' => 'Ltg', 'children' => []],
         ['name' => 'Allg', 'children' => []],
@@ -68,7 +97,9 @@ class TreeEditor extends Component
         ],
     ];
 
-    /** Load model, unwrap, sanitize flags, refresh app names */
+    /**
+     * Load model, unwrap the data if wrapped, sanitize flags, compute app names.
+     */
     public function mount(TreeModel $tree)
     {
         $this->treeId = $tree->id;
@@ -76,11 +107,15 @@ class TreeEditor extends Component
 
         $data = $tree->data ?? [];
         $this->tree = $this->unwrapIfWrapped($data);
+
         $this->sanitizeDeletionFlags($this->tree);
+        $this->sanitizeEnabledFlags($this->tree);   // NEW: ensure enabled flags exist where needed
         $this->refreshAppNames($this->tree, null, null);
     }
 
-    /** Persist raw tree and title */
+    /**
+     * Persist raw tree and title back to the database.
+     */
     protected function persist(): void
     {
         if (!$this->treeId) return;
@@ -95,7 +130,9 @@ class TreeEditor extends Component
         $this->dispatch('autosaved');
     }
 
-    /** Title changed → normalize, validate, unique check, save */
+    /**
+     * Normalize, validate and ensure unique title (case-insensitive).
+     */
     public function updatedTitle(): void
     {
         $candidate = $this->translitUmlauts(
@@ -126,7 +163,7 @@ class TreeEditor extends Component
         $this->persist();
     }
 
-    /** Reset validation on edits */
+    /** Reset validation on inputs while typing. */
     public function updatedNewNodeName(): void
     {
         $this->resetValidation();
@@ -142,14 +179,14 @@ class TreeEditor extends Component
         $this->resetValidation();
     }
 
-    // ================== NODE OPS ==================
-
-    /** Add a new node at selected path (or root). Optional predefined sub-structure. */
+    /**
+     * Add a new node. If not adding the predefined structure,
+     * suffix appName with "_<EffectiveParent>" (skipping AblgOE).
+     */
     public function addNode()
     {
         $nameInput = $this->translitUmlauts(trim((string)$this->newNodeName));
 
-        // STRICT: empty & whitespace
         if ($nameInput === '') {
             $this->addError('newNodeName', 'Name darf nicht leer sein.');
             return;
@@ -158,7 +195,6 @@ class TreeEditor extends Component
             $this->addError('newNodeName', 'Name darf keine Leerzeichen enthalten.');
             return;
         }
-
         if ($reason = $this->invalidNameReason($nameInput)) {
             $this->addError('newNodeName', $reason);
             return;
@@ -178,26 +214,35 @@ class TreeEditor extends Component
 
         $manual = false;
         if ($appInputRaw !== '') {
-            // user provided appName → normalize leading SB, lock manual
             $computedAppName = $this->normalizeSbPrefix($appInputRaw);
             $manual = true;
         } else {
-            // no appName provided → only normalize if name starts with SB; if changed, lock manual
             $fromName = $this->normalizeSbPrefix($nameInput);
             if ($fromName !== $nameInput) {
-                $computedAppName = $fromName; // e.g., SBKasse -> SbKasse
-                $manual = true;               // prevent refresh from turning it into Parent_Sb
+                $computedAppName = $fromName; // SBKasse → SbKasse
+                $manual = true;
             } else {
-                $computedAppName = $nameInput; // keep old behavior
+                $computedAppName = $nameInput;
+            }
+        }
+
+        if (!$this->addWithStructure) {
+            $effectiveParent = $this->effectiveParentNameForPath($this->selectedNodePath);
+            if ($effectiveParent !== null && $effectiveParent !== '') {
+                if (!preg_match('/_' . preg_quote($effectiveParent, '/') . '$/u', $computedAppName)) {
+                    $computedAppName .= '_' . $effectiveParent;
+                }
+                $manual = true; // preserve suffix on refresh
             }
         }
 
         $newNode = [
-            'name'           => $nameInput,
-            'appName'        => $computedAppName,
-            'appNameManual'  => $manual,
-            'children'       => [],
-            'deletable'      => true,
+            'name' => $nameInput,
+            'appName' => $computedAppName,
+            'appNameManual' => $manual,
+            'children' => [],
+            'deletable' => true,
+            // 'enabled' will be added by sanitizeEnabledFlags() if eligible
         ];
 
         if ($this->addWithStructure) {
@@ -218,18 +263,48 @@ class TreeEditor extends Component
         }
 
         $this->refreshAppNames($this->tree, null, null);
+        $this->sanitizeEnabledFlags($this->tree);
+        $this->sanitizeDeletionFlags($this->tree);
+        $this->persist();
 
         $this->newNodeName = '';
         $this->newAppName = '';
         $this->addWithStructure = false;
 
-        $this->sanitizeDeletionFlags($this->tree);
-        $this->persist();
-
         $this->dispatch('focus-newnode');
     }
 
-    /** Remove node at path; fixed names are protected. Keep selection on parent if possible. */
+    /**
+     * Ask for confirmation before deleting a node.
+     *
+     * @param array<int> $path
+     */
+    public function promptDeleteNode($path): void
+    {
+        $this->confirmDeleteNodePath = is_array($path) ? $path : [];
+        $this->confirmDeleteNodeName = $this->getNameAtPath($this->tree, $this->confirmDeleteNodePath) ?? '(ohne Name)';
+        $this->confirmDeleteNodePathStr = $this->pathToString($this->confirmDeleteNodePath);
+        $this->dispatch('open-delete-node');
+    }
+
+    /**
+     * Confirm and perform node deletion.
+     */
+    public function confirmDeleteNode(): void
+    {
+        if (!empty($this->confirmDeleteNodePath)) {
+            $this->removeNode($this->confirmDeleteNodePath);
+        }
+        $this->confirmDeleteNodePath = [];
+        $this->confirmDeleteNodeName = '';
+        $this->confirmDeleteNodePathStr = '';
+    }
+
+    /**
+     * Remove node (protected names cannot be removed).
+     *
+     * @param array<int> $path
+     */
     public function removeNode($path)
     {
         $node = $this->getNodeAtPath($this->tree, $path);
@@ -253,17 +328,23 @@ class TreeEditor extends Component
         $this->editField = null;
         $this->editValue = '';
 
+        $this->sanitizeEnabledFlags($this->tree);
         $this->sanitizeDeletionFlags($this->tree);
         $this->persist();
     }
 
-    /** Select node by path if it exists. */
+    /** Select a node by path if it exists. */
     public function selectNode($path)
     {
         $this->selectedNodePath = $this->pathExists($this->tree, $path) ? $path : null;
     }
 
-    /** Begin inline edit for a field ("name" or "appName"). */
+    /**
+     * Begin inline edit for a field ("name" or "appName").
+     *
+     * @param array<int> $path
+     * @param string $field
+     */
     public function startInlineEdit($path, $field)
     {
         if (!in_array($field, ['name', 'appName'])) return;
@@ -276,26 +357,28 @@ class TreeEditor extends Component
         $this->editValue = $node[$field] ?? '';
     }
 
-    /** Commit inline edit; handles manual flag and cascaded recomputation. */
+    /**
+     * Commit inline edit; updates manual flag and recomputes descendants.
+     *
+     * @param string|null $value
+     */
     public function saveInlineEdit($value = null)
     {
         if ($this->editNodePath === null || $this->editField === null) return;
 
         $val = $this->translitUmlauts(trim((string)($value ?? $this->editValue)));
 
-        // STRICT: empty & whitespace
         if ($val === '') {
             $this->addError('editValue', 'Name darf nicht leer sein.');
-            return; // keep editing state, show error
+            return;
         }
         if (preg_match('/\s/u', $val)) {
             $this->addError('editValue', 'Name darf keine Leerzeichen enthalten.');
-            return; // keep editing state, show error
+            return;
         }
-
         if ($reason = $this->invalidNameReason($val)) {
             $this->addError('editValue', $reason);
-            return; // keep editing state, show error
+            return;
         }
 
         $before = $this->getNodeAtPath($this->tree, $this->editNodePath);
@@ -318,11 +401,11 @@ class TreeEditor extends Component
 
         $this->refreshAppNames($this->tree, null, null);
 
-        // only clear edit state after a successful save
         $this->editNodePath = null;
         $this->editField = null;
         $this->editValue = '';
 
+        $this->sanitizeEnabledFlags($this->tree);
         $this->sanitizeDeletionFlags($this->tree);
         $this->persist();
     }
@@ -335,16 +418,14 @@ class TreeEditor extends Component
         $this->editValue = '';
     }
 
-    // ================== EXPORT ==================
-
-    /** Generate JSON (pretty) using export wrapper. */
+    /** Generate JSON export (pretty). */
     public function generateJson()
     {
         $wrapped = $this->wrapForExport($this->tree);
         $this->generatedJson = json_encode($wrapped, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE);
     }
 
-    /** Request Excel from backend, store temp file, and notify UI. */
+    /** Request Excel from backend, store it as a temporary file, and notify UI. */
     public function generateExcel(): void
     {
         $payload = ['tree' => $this->wrapForExport($this->tree)];
@@ -364,7 +445,12 @@ class TreeEditor extends Component
         $this->dispatch('excel-ready', filename: $filename);
     }
 
-    /** Export wrapper: .PANKOW → ba → DigitaleAkte-203 → {clean tree}. */
+    /**
+     * Export wrapper: .PANKOW → ba → DigitaleAkte-203 → {clean tree}
+     *
+     * @param array<int, array<string,mixed>> $nodes
+     * @return array<int, array<string,mixed>>
+     */
     protected function wrapForExport(array $nodes): array
     {
         $clean = $this->stripInternal($nodes);
@@ -375,31 +461,41 @@ class TreeEditor extends Component
                 'name' => 'ba', 'appName' => 'ba',
                 'children' => [[
                     'name' => 'DigitaleAkte-203', 'appName' => 'DigitaleAkte-203',
-                    'children' => $clean
-                ]]
-            ]]
+                    'children' => $clean,
+                ]],
+            ]],
         ]];
     }
 
-    /** Strip internal fields recursively for export (keep name, appName, children). */
+    /**
+     * Strip internal fields for export (keep name, appName, children, enabled when present).
+     *
+     * @param array<int, array<string,mixed>> $nodes
+     * @return array<int, array<string,mixed>>
+     */
     protected function stripInternal(array $nodes): array
     {
         $out = [];
         foreach ($nodes as $n) {
-            $out[] = [
+            $row = [
                 'name' => $n['name'] ?? '',
                 'appName' => $n['appName'] ?? ($n['name'] ?? ''),
                 'children' => !empty($n['children']) ? $this->stripInternal($n['children']) : [],
             ];
+            if (array_key_exists('enabled', $n)) {
+                $row['enabled'] = (bool)$n['enabled'];
+            }
+            $out[] = $row;
         }
         return $out;
     }
 
-    // ================== DnD / CONFIRMATION ==================
-
     /**
      * Prepare a pending move (for confirmation dialog).
-     * $position: 'into' | 'before' | 'after'
+     *
+     * @param array<int> $fromPath
+     * @param array<int> $toPath
+     * @param 'into'|'before'|'after' $position
      */
     public function preparePendingMove($fromPath, $toPath, $position = 'into'): void
     {
@@ -442,9 +538,7 @@ class TreeEditor extends Component
     /** Apply the pending move and clear dialog state. */
     public function confirmPendingMove(): void
     {
-        if (empty($this->pendingFromPath) || empty($this->pendingToPath)) {
-            return;
-        }
+        if (empty($this->pendingFromPath) || empty($this->pendingToPath)) return;
 
         $this->moveNode($this->pendingFromPath, $this->pendingToPath, $this->pendingPosition);
 
@@ -462,14 +556,16 @@ class TreeEditor extends Component
     }
 
     /**
-     * Move a node relative to target.
-     * $position: 'into' (as last child), 'before', 'after'
+     * Move a node relative to a target.
+     *
+     * @param array<int> $fromPath
+     * @param array<int> $toPath
+     * @param 'into'|'before'|'after' $position
      */
     public function moveNode($fromPath, $toPath, $position = 'into'): void
     {
         if (!$this->pathExists($this->tree, $fromPath) || !$this->pathExists($this->tree, $toPath)) return;
 
-        // disallow moving onto itself or into its own subtree
         if ($fromPath === $toPath || $this->isAncestorPath($fromPath, $toPath)) return;
 
         $moved = $this->extractNodeAtPath($this->tree, $fromPath);
@@ -495,15 +591,15 @@ class TreeEditor extends Component
             $newPath = array_merge($toPath, [$newChildIndex]);
         }
 
-        // recompute appNames with our naming rules
         $this->refreshAppNames($this->tree, null, null);
+        $this->sanitizeEnabledFlags($this->tree);
         $this->sanitizeDeletionFlags($this->tree);
         $this->persist();
 
         $this->selectedNodePath = $newPath;
     }
 
-    /** True if both paths have the same parent (same depth and same parent prefix). */
+    /** True if both paths have the same parent. */
     protected function pathsShareParent(array $a, array $b): bool
     {
         if (count($a) !== count($b)) return false;
@@ -514,15 +610,13 @@ class TreeEditor extends Component
     protected function isAncestorPath(array $a, array $b): bool
     {
         if (count($a) >= count($b)) return false;
-        for ($i = 0; $i < count($a); $i++) {
-            if ($a[$i] !== $b[$i]) return false;
-        }
+        for ($i = 0; $i < count($a); $i++) if ($a[$i] !== $b[$i]) return false;
         return true;
     }
 
-    // ================== HELPERS ==================
-
-    /** Unwrap if the data is nested under .PANKOW/ba/DigitaleAkte-203. */
+    /**
+     * Unwrap if the data is nested under .PANKOW/ba/DigitaleAkte-203.
+     */
     protected function unwrapIfWrapped(array $data): array
     {
         if (
@@ -545,7 +639,9 @@ class TreeEditor extends Component
         return in_array((string)$name, $this->fixedNames, true);
     }
 
-    /** Ensure each node has correct 'deletable' flag. */
+    /**
+     * Ensure each node has correct 'deletable' flag.
+     */
     protected function sanitizeDeletionFlags(array &$nodes): void
     {
         foreach ($nodes as &$n) {
@@ -556,7 +652,105 @@ class TreeEditor extends Component
         }
     }
 
-    /** Build predefined children using a fixed effective parent for appName composition. */
+    /**
+     * Ensure `enabled` flags exist where needed and are removed where not:
+     * - Always on nodes named 'Ltg' or 'Allg'
+     * - On any node under an 'AblgOE' ancestor (at any depth)
+     * - On any node that currently has children (i.e., a parent)
+     *
+     * Children inherit nothing automatically here; this only normalizes presence
+     * of the field and its default (true). Cascading set happens in toggleEnabled().
+     */
+    protected function sanitizeEnabledFlags(array &$nodes, bool $underAblgOE = false): void
+    {
+        foreach ($nodes as &$n) {
+            $name = (string)($n['name'] ?? '');
+            $hasChildren = !empty($n['children']) && is_array($n['children']);
+            $isAblg = ($name === 'AblgOE');
+
+            // ONLY show/use enabled on Ltg, Allg, and anything inside AblgOE
+            $eligible = $underAblgOE || in_array($name, ['Ltg', 'Allg'], true);
+
+            if ($eligible) {
+                if (!array_key_exists('enabled', $n)) {
+                    $n['enabled'] = true; // default checked
+                } else {
+                    $n['enabled'] = (bool)$n['enabled'];
+                }
+            } else {
+                if (array_key_exists('enabled', $n)) {
+                    unset($n['enabled']); // remove from other elements
+                }
+            }
+
+            if ($hasChildren) {
+                $this->sanitizeEnabledFlags($n['children'], $underAblgOE || $isAblg);
+            }
+        }
+    }
+
+
+    /**
+     * Toggle a node's enabled state. If a parent is toggled, all descendants
+     * adopt the same value (cascade).
+     *
+     * @param array<int> $path
+     * @param mixed $checked true/false/"true"/"false"/1/0
+     */
+    public function toggleEnabled($path, $checked): void
+    {
+        $val = is_bool($checked)
+            ? $checked
+            : (in_array($checked, [1, '1', 'true', 'TRUE', 'on'], true));
+
+        $this->setEnabledAtPath($this->tree, $path, (bool)$val, true);
+
+        $this->sanitizeEnabledFlags($this->tree);
+        $this->persist();
+    }
+
+    /**
+     * Locate node by path and set enabled (optionally cascading).
+     *
+     * @param array<int, array<string,mixed>> $nodes
+     * @param array<int> $path
+     */
+    protected function setEnabledAtPath(&$nodes, $path, bool $val, bool $cascade): void
+    {
+        if (!is_array($path) || empty($path)) return;
+        $index = array_shift($path);
+        if (!isset($nodes[$index]) || !is_array($nodes[$index])) return;
+
+        if (count($path) === 0) {
+            $nodes[$index]['enabled'] = $val;
+            if ($cascade && !empty($nodes[$index]['children']) && is_array($nodes[$index]['children'])) {
+                $this->setEnabledRecursive($nodes[$index]['children'], $val);
+            }
+            return;
+        }
+
+        if (!isset($nodes[$index]['children']) || !is_array($nodes[$index]['children'])) return;
+        $this->setEnabledAtPath($nodes[$index]['children'], $path, $val, $cascade);
+    }
+
+    /**
+     * Recursively set enabled on a subtree.
+     *
+     * @param array<int, array<string,mixed>> $nodes
+     */
+    protected function setEnabledRecursive(&$nodes, bool $val): void
+    {
+        foreach ($nodes as &$n) {
+            $n['enabled'] = $val;
+            if (!empty($n['children']) && is_array($n['children'])) {
+                $this->setEnabledRecursive($n['children'], $val);
+            }
+        }
+    }
+
+    /**
+     * Build predefined children using a fixed effective parent for appName composition.
+     */
     protected function buildPredefinedChildrenWithParent(array $items, ?string $effectiveParentName): array
     {
         $res = [];
@@ -578,19 +772,19 @@ class TreeEditor extends Component
         return $res;
     }
 
-    /** Resolve effective parent name for composing appNames when inserting under $path. */
+    /**
+     * Effective parent name when inserting under $path.
+     * If parent is "AblgOE", use grandparent instead.
+     *
+     * @param array<int>|null $path
+     */
     protected function effectiveParentNameForPath($path): ?string
     {
-        if ($path === null || !is_array($path) || empty($path)) {
-            return null;
-        }
+        if ($path === null || !is_array($path) || empty($path)) return null;
 
         $parentName = $this->getNameAtPath($this->tree, $path);
-        if ($parentName === null) {
-            return null;
-        }
+        if ($parentName === null) return null;
 
-        // Skip 'AblgOE' as effective parent → use grandparent
         if ($parentName === 'AblgOE') {
             $gpPath = $path;
             array_pop($gpPath);
@@ -601,7 +795,7 @@ class TreeEditor extends Component
         return $parentName;
     }
 
-    /** Add child under a given path. Returns success state. */
+    /** Add child under a given path. */
     protected function addChildAtPathSafely(&$nodes, $path, $newNode): bool
     {
         if ($path === null || !is_array($path) || empty($path)) return false;
@@ -657,7 +851,13 @@ class TreeEditor extends Component
         return $n['name'] ?? null;
     }
 
-    /** Set multiple fields on node at path. Ensures appName/appNameManual defaults. */
+    /**
+     * Set multiple fields on node at path. Ensures appName/appNameManual defaults.
+     *
+     * @param array<int, array<string,mixed>> $nodes
+     * @param array<int>|null $path
+     * @param array<string,mixed> $fields
+     */
     protected function setNodeFieldsByPath(&$nodes, $path, $fields)
     {
         if ($path === null || !is_array($path)) return;
@@ -758,7 +958,7 @@ class TreeEditor extends Component
         return is_array($kids) ? max(count($kids) - 1, -1) : -1;
     }
 
-    /** Names along a path. */
+    /** Names along a path for display. */
     protected function getPathNames(array $path): array
     {
         $names = [];
@@ -771,14 +971,14 @@ class TreeEditor extends Component
         return $names;
     }
 
-    /** Human-readable path string. */
+    /** Human-readable path string for UI. */
     protected function pathToString(array $path): string
     {
         $names = $this->getPathNames($path);
         return empty($names) ? '(Wurzel)' : implode(' / ', $names);
     }
 
-    /** Delete the current tree model and redirect. */
+    /** Delete the current tree model and redirect to the importer. */
     public function delete()
     {
         if (TreeModel::find($this->treeId)->delete()) {
@@ -786,29 +986,21 @@ class TreeEditor extends Component
         }
     }
 
-    /** Render Livewire view. */
+    /** Render the Livewire view. */
     public function render()
     {
         return view('livewire.tree-editor');
     }
 
-    // ================== VALIDATION HELPERS ==================
-
-    /** Windows-like filename validation; returns message or null. */
+    /** Windows-like filename validation. */
     protected function invalidNameReason(string $name): ?string
     {
-        if (mb_strlen($name) > 255) {
-            return 'Name darf höchstens 255 Zeichen lang sein.';
-        }
-        if ($name === '.' || $name === '..') {
-            return 'Name darf nicht "." oder ".." sein.';
-        }
+        if (mb_strlen($name) > 255) return 'Name darf höchstens 255 Zeichen lang sein.';
+        if ($name === '.' || $name === '..') return 'Name darf nicht "." oder ".." sein.';
         if (preg_match('/[<>:"\/\\\\|?*]/u', $name) || preg_match('/[\x00-\x1F]/u', $name)) {
             return 'Ungültige Zeichen: < > : " / \\ | ? * oder Steuerzeichen sind nicht erlaubt.';
         }
-        if (preg_match('/[ \.]$/u', $name)) {
-            return 'Name darf nicht mit einem Punkt oder Leerzeichen enden.';
-        }
+        if (preg_match('/[ \.]$/u', $name)) return 'Name darf nicht mit einem Punkt oder Leerzeichen enden.';
         $norm = rtrim($name, " .");
         $upper = mb_strtoupper($norm);
         $reserved = [
@@ -825,24 +1017,10 @@ class TreeEditor extends Component
         return null;
     }
 
-    // ================== APPNAME RULES ==================
-
-    /**
-     * Abbreviation for child names used in appName.
-     * - Ltg => Ltg
-     * - Allg => Allg
-     * - PoEing => Pe
-     * - SB => Sb
-     * Fallback: first letter uppercase + second letter lowercase.
-     */
+    /** Abbreviation for child names used in appName. */
     protected function abbr(string $name): string
     {
-        $map = [
-            'Ltg' => 'Ltg',
-            'Allg' => 'Allg',
-            'PoEing' => 'Pe',
-            'SB' => 'Sb',
-        ];
+        $map = ['Ltg' => 'Ltg', 'Allg' => 'Allg', 'PoEing' => 'Pe', 'SB' => 'Sb'];
         if (isset($map[$name])) return $map[$name];
 
         $letters = preg_replace('/[^A-Za-zÄÖÜäöüß]/u', '', $name);
@@ -854,13 +1032,6 @@ class TreeEditor extends Component
 
     /**
      * Compose default appName under effective parent.
-     * - No effective parent  → appName = child name
-     * - Ltg                  → "Ltg_<Parent>"
-     * - Allg                 → "Allg_<Parent>"
-     * - AblgOE               → "<Parent>_Ab"
-     * - SB                   → "Sb_<Parent>"
-     * - PoEing               → "Pe_<Parent>"
-     * - Else                 → "<Parent>_<Abbreviation(child)>"
      */
     protected function composeAppName(?string $effectiveParent, string $childName): string
     {
@@ -876,9 +1047,9 @@ class TreeEditor extends Component
             case 'AblgOE':
                 return 'Ab_' . $effectiveParent;
             case 'SB':
-                return 'Sb_' . $effectiveParent;       // prefix form
+                return 'Sb_' . $effectiveParent;
             case 'PoEing':
-                return 'Pe_' . $effectiveParent;       // prefix form
+                return 'Pe_' . $effectiveParent;
             default:
                 return $effectiveParent . '_' . $this->abbr($childName);
         }
@@ -891,25 +1062,18 @@ class TreeEditor extends Component
     }
 
     /**
-     * Refresh descendants' appNames; preserve manual edits.
-     * If parent is 'AblgOE', we use the grandparent as effective parent for naming.
+     * Refresh descendants' appNames; preserves manual edits.
+     * If parent is 'AblgOE', use the grandparent as effective parent.
      */
     protected function refreshAppNames(array &$nodes, ?string $parentName, ?string $grandparentName): void
     {
         foreach ($nodes as &$n) {
             $name = $n['name'] ?? '';
 
-            if (!isset($n['appName']) || $n['appName'] === '') {
-                $n['appName'] = $name;
-            }
-            if (!isset($n['appNameManual'])) {
-                $n['appNameManual'] = false;
-            }
+            if (!isset($n['appName']) || $n['appName'] === '') $n['appName'] = $name;
+            if (!isset($n['appNameManual'])) $n['appNameManual'] = false;
 
-            $effectiveParent = $parentName;
-            if ($parentName === 'AblgOE') {
-                $effectiveParent = $grandparentName; // skip AblgOE
-            }
+            $effectiveParent = ($parentName === 'AblgOE') ? $grandparentName : $parentName;
             $nextEffectiveParent = $this->nextEffectiveParent($name, $effectiveParent);
 
             if (!empty($n['children']) && is_array($n['children'])) {
@@ -932,9 +1096,7 @@ class TreeEditor extends Component
         }
     }
 
-    // ================== INPUT NORMALIZATION ==================
-
-    /** Replace umlauts with ASCII equivalents. */
+    /** Replace German umlauts with ASCII equivalents. */
     protected function translitUmlauts(string $s): string
     {
         $map = [
@@ -945,16 +1107,16 @@ class TreeEditor extends Component
         return strtr($s, $map);
     }
 
-    /** Collapse whitespace and trim. */
+    /** Collapse whitespace to single spaces and trim. */
     protected function normalizeTitle(string $s): string
     {
         $s = preg_replace('/\s+/u', ' ', $s ?? '');
         return trim($s);
     }
 
+    /** Convert only a leading 'SB' to 'Sb' (e.g., "SBKasse" → "SbKasse"). */
     protected function normalizeSbPrefix(string $s): string
     {
-        // Convert only a leading 'SB' → 'Sb' (leave the rest untouched)
         return preg_replace('/^SB/u', 'Sb', $s);
     }
 }

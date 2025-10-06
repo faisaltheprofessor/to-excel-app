@@ -82,6 +82,11 @@
         <button type="button" id="open-confirm-move" class="hidden"></button>
     </flux:modal.trigger>
 
+    {{-- Hidden trigger for the per-node delete modal --}}
+    <flux:modal.trigger name="delete-node">
+        <button type="button" id="open-delete-node" class="hidden"></button>
+    </flux:modal.trigger>
+
     {{-- CONFIRMATION MODAL --}}
     <flux:modal name="confirm-move" class="min-w-[32rem]">
         <div class="space-y-5">
@@ -121,6 +126,51 @@
                         Verschieben
                     </flux:button>
                 </flux:modal.close>
+            </div>
+        </div>
+    </flux:modal>
+
+    {{-- DELETE NODE MODAL --}}
+    <flux:modal name="delete-node" class="min-w-[28rem]">
+        <div class="space-y-6">
+            <div>
+                <flux:heading size="lg">Knoten löschen?</flux:heading>
+                <flux:text class="mt-2">
+                    <p>Sie sind dabei, den Knoten <span class="font-semibold">{{ $confirmDeleteNodeName }}</span> zu löschen.</p>
+                    <p class="text-sm mt-1 text-zinc-600">Pfad: {{ $confirmDeleteNodePathStr }}</p>
+                    <p>Diese Aktion kann nicht rückgängig gemacht werden.</p>
+                </flux:text>
+            </div>
+            <div class="flex gap-2">
+                <flux:spacer/>
+                <flux:modal.close>
+                    <flux:button variant="ghost">Abbrechen</flux:button>
+                </flux:modal.close>
+                <flux:modal.close>
+                    <flux:button type="button" variant="danger" icon="trash" wire:click="confirmDeleteNode">
+                        Knoten löschen
+                    </flux:button>
+                </flux:modal.close>
+            </div>
+        </div>
+    </flux:modal>
+
+    {{-- DELETE WHOLE STRUCTURE MODAL --}}
+    <flux:modal name="delete-structure" class="min-w-[22rem]">
+        <div class="space-y-6">
+            <div>
+                <flux:heading size="lg">Struktur löschen?</flux:heading>
+                <flux:text class="mt-2">
+                    <p>Sie sind dabei, diese Struktur zu löschen.</p>
+                    <p>Diese Aktion kann nicht rückgängig gemacht werden.</p>
+                </flux:text>
+            </div>
+            <div class="flex gap-2">
+                <flux:spacer/>
+                <flux:modal.close>
+                    <flux:button variant="ghost">Abbrechen</flux:button>
+                </flux:modal.close>
+                <flux:button type="submit" variant="danger" wire:click="delete()">Struktur löschen</flux:button>
             </div>
         </div>
     </flux:modal>
@@ -254,26 +304,13 @@
               location.href = url;
           }
       });
+
+      // open delete-node modal
+      window.addEventListener('open-delete-node', () => {
+          const opener = document.getElementById('open-delete-node');
+          if (opener) opener.click();
+      });
     })();
     </script>
     @endscript
-
-    <flux:modal name="delete-structure" class="min-w-[22rem]">
-        <div class="space-y-6">
-            <div>
-                <flux:heading size="lg">Struktur löschen?</flux:heading>
-                <flux:text class="mt-2">
-                    <p>Sie sind dabei, diese Struktur zu löschen.</p>
-                    <p>Diese Aktion kann nicht rückgängig gemacht werden.</p>
-                </flux:text>
-            </div>
-            <div class="flex gap-2">
-                <flux:spacer/>
-                <flux:modal.close>
-                    <flux:button variant="ghost">Abbrechen</flux:button>
-                </flux:modal.close>
-                <flux:button type="submit" variant="danger" wire:click="delete()">Struktur löschen</flux:button>
-            </div>
-        </div>
-    </flux:modal>
 </div>

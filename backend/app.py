@@ -16,10 +16,8 @@ SHEET2_NAME = "Strukt. Ablage Behörde"
 ROW_BAND, ROW_TITLE, ROW_CAPTION, ROW_HEADERS = 2, 3, 3, 5
 DATA_START_ROW = 4
 
-# Strip the first N wrapper parents on sheet 2 (these are included on sheet 1)
 SKIP_PARENTS = 3
 
-# Placeholders
 ORG_NAME = "BA-PANKOW"
 ADMIN_ACCOUNT = "T1_PL_extMA_DigitaleAkte_Fach_Admin_Role"
 
@@ -31,11 +29,13 @@ BLUE   = PatternFill("solid", fgColor="2F78BD")
 LIME   = PatternFill("solid", fgColor="CCFF66")
 GREEN  = PatternFill("solid", fgColor="A9D08E")
 YELLOW = PatternFill("solid", fgColor="FFF2CC")
+DISABLED_FILL = PatternFill("solid", fgColor="E5E7EB")
 
 WHITEB = Font(color="FFFFFF", bold=True)
 BLACK  = Font(color="000000")
 BLACKB = Font(color="000000", bold=True)
 GRAY   = Font(color="808080")
+GRAYB  = Font(color="808080", bold=True)
 
 LEFT   = Alignment(horizontal="left",  vertical="center", wrap_text=False)
 CENTER = Alignment(horizontal="center",vertical="center", wrap_text=False)
@@ -55,7 +55,6 @@ BOX2 = Border(
 THICK_BOTTOM = Side(style="thick", color="000000")
 THICK_TOP    = Side(style="thick", color="000000")
 
-# Permissions
 PERM_HEADERS = [
     "Lesen", "Schreiben", "Administrieren", "Löschadministration", "Ablageadministration",
     "Aktenplanadministration", "Vorlagenadministration", "Aussonderung",
@@ -69,9 +68,8 @@ LEFT_SUFFIX  = [s for h, s in zip(PERM_HEADERS, PERM_SUFFIX) if h != "Schreiben"
 FORCE_BLUE = {"Org", "Org Name"}
 
 def norm_token(s: str) -> str:
-    """Normalize but KEEP dashes (SB-Thema stays SB-Thema)."""
     s = (s or "").strip()
-    s = re.sub(r"[^\w\-]+", "_", s)  # allow letters, digits, underscore, dash
+    s = re.sub(r"[^\w\-]+", "_", s)
     s = re.sub(r"_+", "_", s).strip("_")
     return s
 
@@ -113,7 +111,6 @@ def create_sheet(last_name_col:int, perm1_cols:int, perm2_cols:int, max_depth:in
     for r,h in [(ROW_BAND,24),(ROW_TITLE,20),(ROW_HEADERS-1,18)]:
         ws.row_dimensions[r].height = h
 
-    # Header bands + titles
     ws.merge_cells(start_row=ROW_BAND, start_column=perm1_s, end_row=ROW_BAND, end_column=perm1_e)
     c1 = ws.cell(row=ROW_BAND, column=perm1_s, value="eDir")
     c1.fill = ORANGE; c1.font = WHITEB; c1.alignment = CENTER; c1.border = BOX
@@ -152,14 +149,9 @@ def create_sheet(last_name_col:int, perm1_cols:int, perm2_cols:int, max_depth:in
         "tree_base": tree_base, "tree_end": tree_end, "max_depth": max_depth
     }
 
-# --- Tree connector drawing (LEFT only) ---
 def draw_connectors(ws, row, level, last_stack, base_col=1):
-    """
-    Draw connectors for the current node row:
-      - Ancestors (d < level-1): draw '│' if that ancestor still has following siblings.
-      - Parent col (level-1): draw '├' if current is not last, else '└'.
-    """
-    if level <= 0: return
+    if level <= 0:
+        return
     for d in range(0, level - 1):
         if not last_stack[d]:
             c = ws.cell(row=row, column=base_col + d, value="│")
@@ -170,36 +162,24 @@ def draw_connectors(ws, row, level, last_stack, base_col=1):
     c.alignment = CENTER; c.font = GRAY
 
 def draw_verticals_on_blank(ws, row, level, last_stack, base_col=1):
-    """
-    Spacer rows: continue ancestor verticals; parent col continues ONLY if not-last,
-    so lines run across the whole level but stop cleanly after the final sibling.
-    """
-    if level <= 0: return
-    # ancestors
+    if level <= 0:
+        return
     for d in range(0, level - 1):
         if not last_stack[d]:
             c = ws.cell(row=row, column=base_col + d, value="│")
             c.alignment = CENTER; c.font = GRAY
-    # parent column vertical ONLY when current node has a following sibling
     if not last_stack[-1]:
         pc = ws.cell(row=row, column=base_col + (level - 1), value="│")
         pc.alignment = CENTER; pc.font = GRAY
 
 def extend_connectors(ws, start_row, end_row, level, last_stack, base_col=1):
-    """
-    Extend verticals from start_row..end_row inclusive for:
-      - All ancestor cols (d < level-1) that have following siblings.
-      - The parent col (level-1) ONLY if current node is NOT last at this level.
-    This gives a continuous line across the whole level, without dangling after the last item.
-    """
-    if level <= 0 or end_row < start_row: return
+    if level <= 0 or end_row < start_row:
+        return
     for r in range(start_row, end_row + 1):
-        # ancestors
         for d in range(0, level - 1):
             if not last_stack[d]:
                 c = ws.cell(row=r, column=base_col + d, value="│")
                 c.alignment = CENTER; c.font = GRAY
-        # parent column (only if there is a following sibling at this level)
         if not last_stack[-1]:
             pc = ws.cell(row=r, column=base_col + (level - 1), value="│")
             pc.alignment = CENTER; pc.font = GRAY
@@ -224,6 +204,13 @@ def is_ablg(s: str) -> bool:
 def is_poeing(s: str) -> bool:
     return (s or "").strip().lower() == "poeing"
 
+def gray_out_row(ws, row, col_start, col_end):
+    for c in range(col_start, col_end + 1):
+        cell = ws.cell(row=row, column=c)
+        bold = bool(cell.font and cell.font.bold)
+        cell.fill = DISABLED_FILL
+        cell.font = GRAYB if bold else GRAY
+
 def write_rows(ws, nodes, row, level, last_stack, cols, lineage_names, lineage_apps):
     name_col = level + 1
     for i, node in enumerate(nodes):
@@ -233,36 +220,30 @@ def write_rows(ws, nodes, row, level, last_stack, cols, lineage_names, lineage_a
         if not name and not children:
             continue
         is_last = (i == len(nodes) - 1)
+        disabled = (node.get("enabled") is False)
 
-        # optional spacer around AblgOE: keep verticals across the level
         if is_ablg(appn) or is_ablg(name):
             draw_verticals_on_blank(ws, row, level, last_stack + [is_last], base_col=1)
             row += 1
 
-        # connectors at this row (LEFT)
         draw_connectors(ws, row, level, last_stack + [is_last], base_col=1)
 
-        # name cell (LEFT)
         nc = ws.cell(row=row, column=name_col, value=name if name else "(unnamed)")
         style_name_cell(nc, name, bool(children))
 
-        # filler until left spacer
         for dc in range(name_col + 1, cols["spacer1"]):
             d = ws.cell(row=row, column=dc, value="-")
             d.alignment = CENTER; d.border = BOX
 
-        # clear the spacer cols
         for sc in [cols["spacer1"], cols["spacer2"], cols["spacer3"], cols["spacer4"]]:
             ws.cell(row=row, column=sc, value="")
 
-        # LEFT (no "Schreiben")
         if level >= GROUPS_FROM_LEVEL and name:
             for j, suf in enumerate(LEFT_SUFFIX, start=cols["perm1_s"]):
                 val = f"{name}-{suf}" if suf else name
                 g = ws.cell(row=row, column=j, value=val)
                 g.alignment = LEFT; g.border = BOX
 
-        # RIGHT canonical groups (Sheet 2 must mirror this base)
         if level >= GROUPS_FROM_LEVEL and name:
             tokens = lineage_names + [norm_token(name)]
             start = min(GROUPS_FROM_LEVEL, len(tokens) - 1)
@@ -272,18 +253,18 @@ def write_rows(ws, nodes, row, level, last_stack, cols, lineage_names, lineage_a
                 g = ws.cell(row=row, column=j, value=val)
                 g.alignment = LEFT; g.border = BOX
 
-        # flat label
         flat_label = appn if appn else (name if name else "(unnamed)")
         fc = ws.cell(row=row, column=cols["flat_col"], value=flat_label)
         style_cell_like_node(fc, flat_label, bool(children))
 
-        # right “Baum” (no connectors there)
         r_name_col = cols["tree_base"] + level
         tv_label = appn if appn else (name if name else "(unnamed)")
         tv = ws.cell(row=row, column=r_name_col, value=tv_label)
         style_cell_like_node(tv, tv_label, bool(children))
 
-        # mark subtree start, then recurse
+        if disabled:
+            gray_out_row(ws, row, 1, cols["tree_end"])
+
         subtree_start_row = row
         row += 1
 
@@ -294,11 +275,9 @@ def write_rows(ws, nodes, row, level, last_stack, cols, lineage_names, lineage_a
                 lineage_apps + [appn]
             )
 
-        # extend verticals down through this subtree (ancestors + parent if not last)
         subtree_end_row = row - 1
         extend_connectors(ws, subtree_start_row + 1, subtree_end_row, level, last_stack + [is_last], base_col=1)
 
-        # bottom spacer for AblgOE
         if is_ablg(appn) or is_ablg(name):
             draw_verticals_on_blank(ws, row, level, last_stack + [is_last], base_col=1)
             row += 1
@@ -326,12 +305,6 @@ def strip_prefix_levels(nodes, n):
     return cur
 
 def allowed_types_for(label, typ):
-    """
-    Return allowed file types:
-      - For Posteingang / Pe_*: 'GOV_WORKING_FOLDER_INBOX'
-      - For Aktenablage: 'GOV_FILE'
-      - Else: ''
-    """
     lab = (label or "").lower()
     if typ == "Posteingang" or lab.startswith("pe_") or "poeing" in lab:
         return "GOV_WORKING_FOLDER_INBOX"
@@ -347,7 +320,6 @@ def break_inheritance_from_node(node, desc_text):
         return "WAHR"
     return ""
 
-# Use the SAME schema base as Sheet 1 RIGHT (use names lineage; wrappers already stripped)
 def build_group_key_from_names(path_names):
     tokens = [norm_token(x) for x in path_names if (x or "").strip()]
     return PREFIX + "_".join(tokens) if tokens else ""
@@ -378,7 +350,6 @@ def set_group_bottom_thick(ws, row_last, col_start=1, col_end=11):
     set_row_bottom_thick(ws, row_last, col_start, col_end)
 
 def make_addr(group_key: str, suffix: str = "") -> str:
-    """Return '<group[-suffix]>@ORG_NAME' (no admin; we'll append admin ONCE later)."""
     key = f"{group_key}-{suffix}" if suffix else group_key
     return f"{key}@{ORG_NAME}"
 
@@ -387,20 +358,12 @@ def is_poe_label(label: str) -> bool:
     return low.startswith("pe_") or "poeing" in low
 
 def write_group_recursive(ws, node, r, path_names, path_apps, poeings):
-    """
-    Sheet 2 writer:
-      - Column A uses appName as display.
-      - Permission cells G..K use the SAME base key as Sheet 1 RIGHT (names lineage with PREFIX).
-      - LA column lists LA groups for ALL ancestors up to current *once*, and the admin account
-        is appended only ONCE at the very end of the semicolon-joined string in each permission cell.
-      - For PoKorb creation we collect app-paths at Pe_* nodes.
-    """
     name = (node.get("name") or "").strip()
     appn = (node.get("appName") or name).strip()
     kids = node.get("children") or []
     desc = (node.get("description") or "").strip()
 
-    label = appn if appn else (name if name else "(unnamed)")  # appName label
+    label = appn if appn else (name if name else "(unnamed)")
     is_parent = bool(kids)
     parent_raw = path_apps[-1] if path_apps else ""
 
@@ -408,14 +371,10 @@ def write_group_recursive(ws, node, r, path_names, path_apps, poeings):
     parent_display = parent_raw
     typ = "Hierarchieelement" if is_parent else "Aktenablage"
 
-    # Permission base from NAMES (SHEET 1 RIGHT schema)
     full_names_path = path_names + [name]
     perm_key = build_group_key_from_names(full_names_path)
-
-    # Build ancestor keys (for LA)
     ancestor_keys = [build_group_key_from_names(full_names_path[:i]) for i in range(1, len(full_names_path)+1)]
 
-    # A..F
     values = [display_a, desc, parent_display, typ,
               break_inheritance_from_node(node, desc),
               allowed_types_for(label, "Posteingang" if is_poe_label(label) else typ)]
@@ -425,35 +384,33 @@ def write_group_recursive(ws, node, r, path_names, path_apps, poeings):
         c.border = BOX2
     ws.cell(row=r, column=1).fill = YELLOW
 
-    # ---- Permissions G..K (append ADMIN_ACCOUNT only ONCE at the end) ----
     g_list = [make_addr(perm_key, "RO")]
     h_list = [make_addr(perm_key, "")]
     i_list = [make_addr(perm_key, "FA")]
-    j_list = [make_addr(k, "LA") for k in ancestor_keys]   # all ancestors for Löschadministration
+    j_list = [make_addr(k, "LA") for k in ancestor_keys]
     k_list = [make_addr(perm_key, "AA")]
 
     cells_lists = [g_list, h_list, i_list, j_list, k_list]
     for offset, items in enumerate(cells_lists, start=7):
-        # join addresses and add admin ONCE at the end
         cell_val = ";".join(items) + f";{ADMIN_ACCOUNT}"
         c = ws.cell(row=r, column=offset, value=cell_val)
         c.alignment = LEFT
         c.border = BOX2
 
-    # Emphasis
     ws.cell(row=r, column=1).font = (BLACKB if is_parent else BLACK)
     for j in range(2, 12):
         ws.cell(row=r, column=j).font = BLACK
     if is_parent:
         set_row_top_thick(ws, r, 1, 11)
 
+    if node.get("enabled") is False:
+        gray_out_row(ws, r, 1, 11)
+
     current_row = r
 
-    # Remember Pe_* locations for PoKorb creation: store the *app* path (ancestors' app names)
     if is_poe_label(label):
         poeings.append({"path": list(path_apps)})
 
-    # Recurse
     for child in kids:
         current_row += 1
         current_row, _ = write_group_recursive(
@@ -486,11 +443,9 @@ def add_second_sheet(wb: Workbook, tree):
         c = ws.cell(row=1, column=col_idx, value=h)
         c.font = BLACKB; c.alignment = LEFT; c.border = BOX2
 
-    # Green header band G..K
     for col_idx in range(7, 12):
         ws.cell(row=1, column=col_idx).fill = GREEN
 
-    # Work on tree without first 3 wrapper levels (sheet 1 includes them)
     working_nodes = strip_prefix_levels(tree, SKIP_PARENTS)
 
     r = 2
@@ -499,13 +454,10 @@ def add_second_sheet(wb: Workbook, tree):
     for top in working_nodes:
         r, poe = write_group_recursive(ws, top, r, path_names=[], path_apps=[], poeings=[])
         all_poeings.extend(poe)
-        r += 1  # spacer between top-level groups
+        r += 1
 
-    # === PoKorb rows ===
-    # EXACT rule: PoKorb_<AppNameOfParentOfAblgOE>; parent column = Pe_<AppNameOfParentOfAblgOE>
-    # Col G..K for PoKorb remain empty (no perms) — requirement unchanged.
     for pe in all_poeings:
-        parent_app = pe["path"][-2] if len(pe["path"]) >= 2 else ""   # AppName of parent of AblgOE
+        parent_app = pe["path"][-2] if len(pe["path"]) >= 2 else ""
         label  = f"PoKorb_{parent_app}" if parent_app else "PoKorb"
         parent = f"Pe_{parent_app}"     if parent_app else "Pe"
 
@@ -515,7 +467,7 @@ def add_second_sheet(wb: Workbook, tree):
             parent,
             "Posteingang",
             "",
-            "",  # Erlaubte Aktentypen = empty for PoKorb
+            "",
         ]
         for j, v in enumerate(values, start=1):
             c = ws.cell(row=r, column=j, value=v)
