@@ -74,7 +74,7 @@ LEFT_SUFFIX  = [s for h, s in zip(PERM_HEADERS, PERM_SUFFIX) if h != "Schreiben"
 
 FORCE_BLUE = {"Org", "Org Name"}
 
-# Roles sheet config
+# Roles sheet config (will be overridden by rolesCount from request if provided)
 ROLES_COUNT = 10
 ROLE_HEADER_TEXT = "Rollenname"
 
@@ -679,25 +679,25 @@ def find_last_populated_row(ws, total_cols: int) -> int:
             return r
     return 2  # only header exists
 
-def add_third_sheet(wb: Workbook, tree):
+def add_third_sheet(wb: Workbook, tree, roles_count:int):
     ws = wb.create_sheet(title=SHEET3_NAME)
-    roles_sheet_header(ws, ROLES_COUNT)
+    roles_sheet_header(ws, roles_count)
 
     working_nodes = strip_prefix_levels(tree, SKIP_PARENTS)
 
     r = 3
     for idx, top in enumerate(working_nodes):
-        r = write_roles_for_node(ws, top, r, ROLES_COUNT)
+        r = write_roles_for_node(ws, top, r, roles_count)
         if idx < len(working_nodes) - 1:
             r += 1  # blank line BETWEEN top-level groups only
 
-    total_cols = 2 + ROLES_COUNT * 3
+    total_cols = 2 + roles_count * 3
 
     # Determine true last populated row (removes any trailing blank before bottom border)
     end_row = find_last_populated_row(ws, total_cols)
 
     # Apply grid and borders
-    apply_role_vertical_borders(ws, ROLES_COUNT, end_row)
+    apply_role_vertical_borders(ws, roles_count, end_row)
     apply_gray_horizontal_grid(ws, start_row=3, end_row=end_row, total_cols=total_cols)
     apply_thick_bottom(ws, total_cols, end_row)
 
@@ -708,28 +708,53 @@ def add_third_sheet(wb: Workbook, tree):
 # ---------- API ----------
 @app.post("/generate-excel")
 async def generate_excel(request: Request):
+    """
+    Expects JSON:
+      {
+        "tree": [...],                 # REQUIRED: raw tree (wrapped-or-unwrapped is okay if your PHP keeps SKIP_PARENTS logic)
+        "sheets": ["GE","Ablage","Roles"],   # OPTIONAL: subset of sheets to produce
+        "rolesCount": 10              # OPTIONAL: number of role placeholders per node on Roles sheet
+      }
+    """
     data = await request.json()
     tree = data.get("tree")
     if not tree:
         return {"error": "Missing 'tree' in JSON body"}
 
+    # selections
+    sheets = data.get("sheets") or ["GE", "Ablage", "Roles"]
+    roles_count = int(data.get("rolesCount") or ROLES_COUNT)
+
     max_depth = max(0, tree_max_depth(tree))
     last_name_col = max_depth + 1
 
-    wb, ws, cols = create_sheet(
-        last_name_col,
-        perm1_cols=len(LEFT_HEADERS),
-        perm2_cols=len(PERM_HEADERS),
-        max_depth=max_depth
-    )
+    wb = None
+    cols = None
 
-    write_rows(ws, tree, DATA_START_ROW, level=0, last_stack=[],
-               cols=cols, lineage_names=[], lineage_apps=[])
+    # If GE is selected, bootstrap workbook from create_sheet (it returns a new WB)
+    if "GE" in sheets:
+        wb, ws, cols = create_sheet(
+            last_name_col,
+            perm1_cols=len(LEFT_HEADERS),
+            perm2_cols=len(PERM_HEADERS),
+            max_depth=max_depth
+        )
+        write_rows(ws, tree, DATA_START_ROW, level=0, last_stack=[],
+                   cols=cols, lineage_names=[], lineage_apps=[])
+        autosize_columns(ws, min_w=8, max_w=60)
+    else:
+        # Start an empty WB when GE is not selected
+        wb = Workbook()
+        # remove the default empty sheet so we only end up with requested ones
+        wb.remove(wb.active)
 
-    autosize_columns(ws, min_w=8, max_w=60)
+    # Add Ablage sheet if requested
+    if "Ablage" in sheets:
+        add_second_sheet(wb, tree)
 
-    add_second_sheet(wb, tree)
-    add_third_sheet(wb, tree)
+    # Add Roles sheet if requested
+    if "Roles" in sheets:
+        add_third_sheet(wb, tree, roles_count)
 
     buf = io.BytesIO()
     wb.save(buf)

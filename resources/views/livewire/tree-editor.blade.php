@@ -1,26 +1,40 @@
-{{-- Full-height, page scroll locked; only tree scrolls --}}
+{{-- resources/views/livewire/tree-editor.blade.php --}}
 <div class="w-1/2 m:w-3/4 mx-auto h-screen overflow-hidden flex flex-col">
-    {{-- Header (title + info) --}}
-    <div class="p-6 pb-2 flex flex-col gap-1 shrink-0">
+    {{-- Header: title (left) + actions (right) --}}
+    <div class="p-6 pb-2 flex flex-col gap-2 shrink-0">
         <div class="flex items-center gap-3">
             <flux:input
                 wire:model.blur="title"
                 placeholder="Titel des Baums"
                 class="flex-1"
             />
-            <div class="text-xs text-zinc-500">ID: {{ $treeId }}</div>
-        </div>
-        {{-- Title error (Windows rules / CI-unique) --}}
-        @error('title')
-            <div class="text-sm text-red-600">{{ $message }}</div>
-        @enderror
-    </div>
 
-    {{-- Add form (frozen at top) --}}
+            <div class="flex items-center gap-2">
+                <flux:modal.trigger name="excel-options">
+                    <flux:button variant="primary" color="green" icon="sheet" class="cursor-pointer" size="sm">
+                        Excel erzeugen
+                    </flux:button>
+                </flux:modal.trigger>
+
+                <flux:modal.trigger name="delete-structure">
+                    <flux:button variant="danger" icon="trash" class="cursor-pointer" size="sm">
+                        Löschen
+                    </flux:button>
+                </flux:modal.trigger>
+            </div>
+        </div>
+
+        <div class="flex items-center justify-between">
+            @error('title')
+                <div class="text-sm text-red-600">{{ $message }}</div>
+            @enderror
+        </div>
+    </div>
+    <flux:separator class="mb-3" />
+    {{-- Add form --}}
     <div class="px-6 pb-4 shrink-0">
         <form class="flex flex-col gap-2" wire:submit.prevent="addNode">
             <div class="flex items-center gap-4">
-                {{-- focus target --}}
                 <flux:input id="new-node-input" wire:model.live="newNodeName" placeholder="Neuer Knotenname" class="flex-1"/>
                 <flux:input wire:model.live="newAppName"  placeholder="Name im Nscale (optional)" class="flex-1"/>
 
@@ -29,7 +43,7 @@
                     mit Ablagen
                 </label>
 
-                <flux:button type="submit" variant="primary" color="green" class="cursor-pointer">
+                <flux:button type="submit" variant="primary" color="green" class="cursor-pointer" size="sm">
                     Hinzufügen
                 </flux:button>
             </div>
@@ -41,7 +55,8 @@
         </form>
     </div>
 
-    {{-- Tree area (only this scrolls) --}}
+
+    {{-- Tree --}}
     <div class="px-6 pb-24 grow min-h-0">
         <flux:card class="h-full overflow-auto" data-tree-root>
             <div class="pr-2">
@@ -64,127 +79,29 @@
         </pre>
     @endif
 
-    {{-- fixed action bar --}}
-    <div class="fixed inset-x-0 bottom-4 flex justify-end px-6 pointer-events-none">
-        <div class="pointer-events-auto flex gap-2">
-            <flux:button wire:click="generateJson" color="secondary" hidden>JSON erzeugen</flux:button>
-            <flux:modal.trigger name="delete-structure">
-                <flux:button variant="danger" icon="trash" class="cursor-pointer">Löschen</flux:button>
-            </flux:modal.trigger>
-            <flux:button wire:click="generateExcel" variant="primary" color="green" icon="sheet" class="cursor-pointer">
-                Excel erzeugen
-            </flux:button>
-        </div>
-    </div>
-
-    {{-- Hidden trigger for the confirm-move modal --}}
+    {{-- Hidden triggers --}}
     <flux:modal.trigger name="confirm-move">
         <button type="button" id="open-confirm-move" class="hidden"></button>
     </flux:modal.trigger>
 
-    {{-- Hidden trigger for the per-node delete modal --}}
     <flux:modal.trigger name="delete-node">
         <button type="button" id="open-delete-node" class="hidden"></button>
     </flux:modal.trigger>
 
-    {{-- CONFIRMATION MODAL --}}
-    <flux:modal name="confirm-move" class="min-w-[32rem]">
-        <div class="space-y-5">
-            <div>
-                <flux:heading size="lg">Verschiebung bestätigen</flux:heading>
-
-                @if ($pendingSameParent && in_array($pendingPosition, ['before','after']))
-                    <flux:text class="mt-2 space-y-2">
-                        <p>
-                            Soll der Knoten <span class="font-semibold">innerhalb</span> von
-                            <span class="font-semibold">{{ $pendingWithinParentName }}</span>
-                            von <span class="font-semibold">Position {{ $pendingFromIndex + 1 }}</span>
-                            nach <span class="font-semibold">Position {{ $pendingToIndex + 1 }}</span> verschoben werden?
-                        </p>
-                    </flux:text>
-                @else
-                    <flux:text class="mt-2 space-y-2">
-                        <p>Sie sind dabei, diesen Knoten zu verschieben.</p>
-                        <div class="text-sm space-y-1">
-                            <div><span class="font-medium">Alter Pfad (Elternknoten):</span> {{ $pendingOldParentPathStr }}</div>
-                            <div><span class="font-medium">Neuer Pfad (Elternknoten):</span> {{ $pendingNewParentPathStr }}</div>
-                            @if ($pendingPosition === 'into')
-                                <div class="text-xs text-zinc-500">Wird als <em>letztes Kind</em> des neuen Elternknotens eingefügt.</div>
-                            @endif
-                        </div>
-                    </flux:text>
-                @endif
-            </div>
-
-            <div class="flex items-center gap-2">
-                <flux:spacer/>
-                <flux:modal.close>
-                    <flux:button variant="ghost">Abbrechen</flux:button>
-                </flux:modal.close>
-                <flux:modal.close>
-                    <flux:button variant="primary" color="green" icon="arrow-right" wire:click="confirmPendingMove">
-                        Verschieben
-                    </flux:button>
-                </flux:modal.close>
-            </div>
-        </div>
-    </flux:modal>
-
-    {{-- DELETE NODE MODAL --}}
-    <flux:modal name="delete-node" class="min-w-[28rem]">
-        <div class="space-y-6">
-            <div>
-                <flux:heading size="lg">Knoten löschen?</flux:heading>
-                <flux:text class="mt-2">
-                    <p>Sie sind dabei, den Knoten <span class="font-semibold">{{ $confirmDeleteNodeName }}</span> zu löschen.</p>
-                    <p class="text-sm mt-1 text-zinc-600">Pfad: {{ $confirmDeleteNodePathStr }}</p>
-                    <p>Diese Aktion kann nicht rückgängig gemacht werden.</p>
-                </flux:text>
-            </div>
-            <div class="flex gap-2">
-                <flux:spacer/>
-                <flux:modal.close>
-                    <flux:button variant="ghost">Abbrechen</flux:button>
-                </flux:modal.close>
-                <flux:modal.close>
-                    <flux:button type="button" variant="danger" icon="trash" wire:click="confirmDeleteNode">
-                        Knoten löschen
-                    </flux:button>
-                </flux:modal.close>
-            </div>
-        </div>
-    </flux:modal>
-
-    {{-- DELETE WHOLE STRUCTURE MODAL --}}
-    <flux:modal name="delete-structure" class="min-w-[22rem]">
-        <div class="space-y-6">
-            <div>
-                <flux:heading size="lg">Struktur löschen?</flux:heading>
-                <flux:text class="mt-2">
-                    <p>Sie sind dabei, diese Struktur zu löschen.</p>
-                    <p>Diese Aktion kann nicht rückgängig gemacht werden.</p>
-                </flux:text>
-            </div>
-            <div class="flex gap-2">
-                <flux:spacer/>
-                <flux:modal.close>
-                    <flux:button variant="ghost">Abbrechen</flux:button>
-                </flux:modal.close>
-                <flux:button type="submit" variant="danger" wire:click="delete()">Struktur löschen</flux:button>
-            </div>
-        </div>
-    </flux:modal>
+    {{-- Modals --}}
+    @include('livewire.partials.modal-confirm-move')
+    @include('livewire.partials.modal-delete-node')
+    @include('livewire.partials.modal-delete-structure')
+    @include('livewire.partials.modal-excel-options')
 
     @script
     <script>
     (function () {
-      // re-focus new node field after add
       window.addEventListener('focus-newnode', () => {
         const el = document.getElementById('new-node-input');
         if (el) { el.focus(); el.select?.(); }
       });
 
-      // --- Drag & Drop helpers ---
       const RING        = 'ring-1 ring-offset-1 dark:ring-offset-0 ring-blue-400 dark:ring-blue-500 rounded';
       const RING_BEFORE = 'ring-1 ring-offset-1 dark:ring-offset-0 ring-emerald-400 dark:ring-emerald-500 rounded';
       const RING_AFTER  = 'ring-1 ring-offset-1 dark:ring-offset-0 ring-amber-400  dark:ring-amber-500  rounded';
@@ -287,11 +204,9 @@
         if (opener) opener.click();
       });
 
-      // page scroll lock (only tree scrolls)
       document.documentElement.classList.add('overflow-hidden');
       document.body.classList.add('overflow-hidden');
 
-      // excel download
       window.addEventListener('excel-ready', event => {
           const filename = event.detail.filename;
           if (!filename) return;
@@ -305,7 +220,6 @@
           }
       });
 
-      // open delete-node modal
       window.addEventListener('open-delete-node', () => {
           const opener = document.getElementById('open-delete-node');
           if (opener) opener.click();
