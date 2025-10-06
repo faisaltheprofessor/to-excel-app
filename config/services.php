@@ -34,5 +34,8 @@ return [
             'channel' => env('SLACK_BOT_USER_DEFAULT_CHANNEL'),
         ],
     ],
+    'python' => [
+        'backend' => env('PYTHON_BACKEND_PORT', '8000'),
+    ]
 
 ];

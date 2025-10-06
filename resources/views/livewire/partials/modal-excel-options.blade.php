@@ -1,10 +1,10 @@
 <flux:modal name="excel-options" class="min-w-[28rem]" wire:model="excelOptionsOpen">
-    <div class="space-y-6">
+    <div x-data="{ roles: @entangle('sheetRoles') }" class="space-y-6">
         <div>
             <flux:heading size="lg">Excel-Optionen</flux:heading>
             <flux:text class="mt-2 space-y-1 text-sm">
                 <p>Wählen Sie die zu erzeugenden Arbeitsblätter, die Anzahl der Rollen-Platzhalter
-                und den gewünschten Dateinamen für den Export.</p>
+                    und den gewünschten Dateinamen für den Export.</p>
             </flux:text>
 
             <div class="mt-4 space-y-5">
@@ -38,12 +38,12 @@
                         max="50"
                         wire:model.live="rolesPlaceholderCount"
                         class="w-24 text-center"
-                        :disabled="! $sheetRoles"
+                        x-bind:disabled="!roles"
                     />
                 </div>
 
                 @error('generate')
-                    <div class="text-sm text-red-600 mt-2">{{ $message }}</div>
+                <div class="text-sm text-red-600 mt-2">{{ $message }}</div>
                 @enderror
             </div>
         </div>

@@ -374,8 +374,11 @@ class TreeEditor extends Component
             'rolesCount' => $this->sheetRoles ? $this->rolesPlaceholderCount : 0,
         ];
 
+        $port = (string) config('services.python.backend', '8000');
+        $url = 'http://localhost:' . $port . '/generate-excel';
+
         $res = Http::accept('application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
-            ->post('http://localhost:8000/generate-excel', $payload);
+            ->post($url, $payload);
 
         if (!$res->successful()) {
             $this->addError('generate', 'Excel-Erzeugung fehlgeschlagen.');
@@ -866,7 +869,7 @@ class TreeEditor extends Component
         if (mb_strlen($name) > 255) return 'Name darf höchstens 255 Zeichen lang sein.';
         if ($name === '.' || $name === '..') return 'Name darf nicht "." oder ".." sein.';
         if (preg_match('/[<>:"\/\\\\|?*]/u', $name) || preg_match('/[\x00-\x1F]/u', $name)) {
-            return 'Ungültige Zeichen: < > : " / \\ | ? * oder Steuerzeichen sind nicht erlaubt.';
+            return 'Ungültige Zeichen: < > : \" / \\ | ? * oder Steuerzeichen sind nicht erlaubt.';
         }
         if (preg_match('/[ \.]$/u', $name)) return 'Name darf nicht mit einem Punkt oder Leerzeichen enden.';
         $norm = rtrim($name, " .");

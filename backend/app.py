@@ -17,8 +17,7 @@ SHEET3_NAME = "Geschäftsrollen"
 ROW_BAND, ROW_TITLE, ROW_CAPTION, ROW_HEADERS = 2, 3, 3, 5
 DATA_START_ROW = 4
 
-# The PHP side wraps real data with 3 ancestors (.PANKOW → ba → DigitaleAkte-203).
-# For Sheets 2 & 3 we skip those wrappers.
+# Wrapped ancestors: .PANKOW -> ba -> DigitaleAkte-203
 SKIP_PARENTS = 3
 
 ORG_NAME = "BA-PANKOW"
@@ -27,9 +26,9 @@ ADMIN_ACCOUNT = "T1_PL_extMA_DigitaleAkte_Fach_Admin_Role"
 # ===== Styles =====
 ORANGE = PatternFill("solid", fgColor="EA5B2B")
 CYAN   = PatternFill("solid", fgColor="63D3FF")
-PALEGR = PatternFill("solid", fgColor="D8F4D2")   # highlight rows such as Ltg/Allg & Ablagen
-BLUE   = PatternFill("solid", fgColor="2F78BD")   # containers/headers
-LIME   = PatternFill("solid", fgColor="CCFF66")   # leaves
+PALEGR = PatternFill("solid", fgColor="D8F4D2")
+BLUE   = PatternFill("solid", fgColor="2F78BD")
+LIME   = PatternFill("solid", fgColor="CCFF66")
 TITLE_GRAY = PatternFill("solid", fgColor="D1D5DB")
 DISABLED_FILL = PatternFill("solid", fgColor="E5E7EB")
 YELLOW = PatternFill("solid", fgColor="FFF2CC")
@@ -44,7 +43,6 @@ LEFT   = Alignment(horizontal="left",  vertical="center", wrap_text=False)
 CENTER = Alignment(horizontal="center",vertical="center", wrap_text=False)
 
 GRID_GRAY    = Side(style="thin", color="B0B0B0")
-THIN_BLACK   = Side(style="thin", color="000000")
 THICK        = Side(style="thick", color="000000")
 THICK_BOTTOM = Side(style="thick", color="000000")
 THICK_TOP    = Side(style="thick", color="000000")
@@ -74,23 +72,20 @@ LEFT_SUFFIX  = [s for h, s in zip(PERM_HEADERS, PERM_SUFFIX) if h != "Schreiben"
 
 FORCE_BLUE = {"Org", "Org Name"}
 
-# Roles sheet config (overridden by rolesCount from request if provided)
 ROLES_COUNT = 10
 ROLE_HEADER_TEXT = "Rollenname"
 
 # ---------------------------------------------------------------------------
-# Utility helpers
+# Utils
 # ---------------------------------------------------------------------------
 
 def norm_token(s: str) -> str:
-    """Normalize to a token (letters/digits/underscore/hyphen) for group keys."""
     s = (s or "").strip()
     s = re.sub(r"[^\w\-]+", "_", s)
     s = re.sub(r"_+", "_", s).strip("_")
     return s
 
 def tree_max_depth(nodes, level=0):
-    """Return maximum depth, with root level = 0."""
     if not nodes:
         return level - 1
     m = level
@@ -99,15 +94,10 @@ def tree_max_depth(nodes, level=0):
     return m
 
 # ---------------------------------------------------------------------------
-# Sheet 1: GE_Gruppenstruktur (with ASCII tree)
+# Sheet 1: GE_Gruppenstruktur (ASCII tree)
 # ---------------------------------------------------------------------------
 
 def create_sheet(last_name_col:int, perm1_cols:int, perm2_cols:int, max_depth:int):
-    """
-    Sheet layout:
-      [tree columns][name] [spacer] [perm block 1] [spacer] [perm block 2]
-      [spacer] [flat label] [spacer] [tree drawing columns]
-    """
     spacer1 = last_name_col + 1
     perm1_s = spacer1 + 1
     perm1_e = perm1_s + perm1_cols - 1
@@ -174,67 +164,42 @@ def create_sheet(last_name_col:int, perm1_cols:int, perm2_cols:int, max_depth:in
         "tree_base": tree_base, "tree_end": tree_end, "max_depth": max_depth
     }
 
-# ─────────────────────────────────────────────────────────────────────────────
-# ASCII tree drawer — **key idea: shifted ancestor logic**
-#
-# For a row at depth L, columns BEFORE the elbow (0..L-2) should continue '│'
-# if the **next ancestor** (index d+1) is NOT last among its siblings.
-# Example: under IKT → SG1 subtree, column 0 must show '│' as long as SG1
-# isn’t the last top-level child — independent of whether IKT has siblings.
-# ─────────────────────────────────────────────────────────────────────────────
+# ── ASCII tree helpers (shifted ancestor logic) ──────────────────────────────
 
 def draw_verticals_before_elbow(ws, row: int, level: int, last_stack, base_col: int = 1):
-    """
-    Draw '│' for columns 0..level-2.
-    Decision at column d uses last_stack[d+1] (shifted by one).
-    """
     if level <= 1:
         return
-    for d in range(0, level - 1):                  # 0..L-2
-        idx = d + 1                                # look at the *next* ancestor
+    for d in range(0, level - 1):      # columns 0..L-2
+        idx = d + 1
         if idx < len(last_stack) and not last_stack[idx]:
             c = ws.cell(row=row, column=base_col + d, value="│")
             c.alignment = CENTER; c.font = GRAY
 
 def draw_verticals_through_subtree(ws, row: int, level: int, last_stack, base_col: int = 1):
-    """
-    Continue verticals through a node's subtree region.
-    We draw columns 0..level-1 (includes the parent's elbow column).
-    Decision at column d uses last_stack[d+1].
-    """
     if level <= 0:
         return
-    for d in range(0, level):                       # 0..L-1
+    for d in range(0, level):          # columns 0..L-1
         idx = d + 1
         if idx < len(last_stack) and not last_stack[idx]:
             c = ws.cell(row=row, column=base_col + d, value="│")
             c.alignment = CENTER; c.font = GRAY
 
 def draw_connectors(ws, row: int, level: int, last_stack, base_col: int = 1):
-    """
-    Draw ancestor verticals before the elbow + the elbow itself.
-    Elbow is └ if current node is last; else ├.
-    """
     if level <= 0:
         return
     draw_verticals_before_elbow(ws, row, level, last_stack, base_col=base_col)
-
     elbow_col = base_col + (level - 1)
     elbow = "└" if last_stack[-1] else "├"
     c = ws.cell(row=row, column=elbow_col, value=elbow)
     c.alignment = CENTER; c.font = GRAY
 
 def extend_connectors(ws, start_row: int, end_row: int, level: int, last_stack, base_col: int = 1):
-    """
-    After drawing a node, extend verticals down across its subtree rows.
-    We include the elbow column here (columns 0..level-1).
-    """
     if end_row < start_row or level < 0:
         return
     for r in range(start_row, end_row + 1):
         draw_verticals_through_subtree(ws, r, level, last_stack, base_col=base_col)
 
-# ─────────────────────────────────────────────────────────────────────────────
+# ── Sheet 1 writing ─────────────────────────────────────────────────────────
 
 def style_cell_like_node(cell, label:str, is_container:bool):
     cell.alignment = LEFT; cell.border = BOX
@@ -257,7 +222,6 @@ def is_poeing(s: str) -> bool:
     return (s or "").strip().lower() == "poeing"
 
 def gray_out_row(ws, row, col_start, col_end):
-    """Gray out a range, preserving bold where present."""
     for c in range(col_start, col_end + 1):
         cell = ws.cell(row=row, column=c)
         bold = bool(cell.font and cell.font.bold)
@@ -265,10 +229,6 @@ def gray_out_row(ws, row, col_start, col_end):
         cell.font = GRAYB if bold else GRAY
 
 def write_rows(ws, nodes, row, level, last_stack, cols, lineage_names, lineage_apps):
-    """
-    Preorder traversal that writes each node, draws connectors,
-    and fills group columns. **No spacer rows** are inserted.
-    """
     name_col = level + 1
     for i, node in enumerate(nodes):
         name = (node.get("name") or "").strip()
@@ -280,30 +240,24 @@ def write_rows(ws, nodes, row, level, last_stack, cols, lineage_names, lineage_a
         is_last = (i == len(nodes) - 1)
         disabled = (node.get("enabled") is False)
 
-        # Draw connectors for this row
         draw_connectors(ws, row, level, last_stack + [is_last], base_col=1)
 
-        # Name cell
         nc = ws.cell(row=row, column=name_col, value=name if name else "(unnamed)")
         style_name_cell(nc, name, bool(children))
 
-        # Fill dashes between name and spacer
         for dc in range(name_col + 1, cols["spacer1"]):
             d = ws.cell(row=row, column=dc, value="-")
             d.alignment = CENTER; d.border = BOX
 
-        # Clear spacers
         for sc in [cols["spacer1"], cols["spacer2"], cols["spacer3"], cols["spacer4"]]:
             ws.cell(row=row, column=sc, value="")
 
-        # Left permission block (from certain depth)
         if level >= GROUPS_FROM_LEVEL and name:
             for j, suf in enumerate(LEFT_SUFFIX, start=cols["perm1_s"]):
                 val = f"{name}-{suf}" if suf else name
                 g = ws.cell(row=row, column=j, value=val)
                 g.alignment = LEFT; g.border = BOX
 
-        # Right permission block (group keys)
         if level >= GROUPS_FROM_LEVEL and name:
             tokens = lineage_names + [norm_token(name)]
             start = min(GROUPS_FROM_LEVEL, len(tokens) - 1)
@@ -313,7 +267,6 @@ def write_rows(ws, nodes, row, level, last_stack, cols, lineage_names, lineage_a
                 g = ws.cell(row=row, column=j, value=val)
                 g.alignment = LEFT; g.border = BOX
 
-        # Flat label + tree columns on the right
         flat_label = appn if appn else (name if name else "(unnamed)")
         fc = ws.cell(row=row, column=cols["flat_col"], value=flat_label)
         style_cell_like_node(fc, flat_label, bool(children))
@@ -326,11 +279,9 @@ def write_rows(ws, nodes, row, level, last_stack, cols, lineage_names, lineage_a
         if disabled:
             gray_out_row(ws, row, 1, cols["tree_end"])
 
-        # Mark subtree start
         subtree_start_row = row
         row += 1
 
-        # Recurse
         if children:
             row = write_rows(
                 ws, children, row, level + 1, last_stack + [is_last], cols,
@@ -338,14 +289,12 @@ def write_rows(ws, nodes, row, level, last_stack, cols, lineage_names, lineage_a
                 lineage_apps + [appn]
             )
 
-        # Extend verticals across the entire subtree (no gaps)
         subtree_end_row = row - 1
         extend_connectors(ws, subtree_start_row + 1, subtree_end_row, level, last_stack + [is_last], base_col=1)
 
     return row
 
 def autosize_columns(ws, min_w=10, max_w=120):
-    """Simple autosize with bounds."""
     for col in ws.columns:
         col = list(col)
         letter = get_column_letter(col[0].column)
@@ -422,10 +371,6 @@ def is_poe_label(label: str) -> bool:
     return low.startswith("pe_") or "poeing" in low
 
 def write_group_recursive(ws, node, r, path_names, path_apps, poeings):
-    """
-    Flatten to 'Strukt. Ablage Behörde'. Capture each PoEing plus its disabled state
-    so we can mirror that gray state onto the derived PoKorb rows later.
-    """
     name = (node.get("name") or "").strip()
     appn = (node.get("appName") or name).strip()
     kids = node.get("children") or []
@@ -458,8 +403,7 @@ def write_group_recursive(ws, node, r, path_names, path_apps, poeings):
     j_list = [make_addr(k, "LA") for k in ancestor_keys]
     k_list = [make_addr(perm_key, "AA")]
 
-    cells_lists = [g_list, h_list, i_list, j_list, k_list]
-    for offset, items in enumerate(cells_lists, start=7):
+    for offset, items in enumerate([g_list, h_list, i_list, j_list, k_list], start=7):
         cell_val = ";".join(items) + f";{ADMIN_ACCOUNT}"
         c = ws.cell(row=r, column=offset, value=cell_val)
         c.alignment = LEFT
@@ -474,27 +418,26 @@ def write_group_recursive(ws, node, r, path_names, path_apps, poeings):
     if node.get("enabled") is False:
         gray_out_row(ws, r, 1, 11)
 
-    current_row = r
+    cur = r
 
-    # Capture PoEing nodes and whether they were disabled
     if is_poe_label(label):
         poeings.append({"path": list(path_apps), "disabled": (node.get("enabled") is False)})
 
     for child in kids:
-        current_row += 1
-        current_row, _ = write_group_recursive(
+        cur += 1
+        cur, _ = write_group_recursive(
             ws,
             child,
-            current_row,
+            cur,
             path_names = full_names_path,
             path_apps  = path_apps + [label],
             poeings    = poeings
         )
 
     if is_parent:
-        set_group_bottom_thick(ws, current_row, 1, 11)
+        set_group_bottom_thick(ws, cur, 1, 11)
 
-    return current_row, poeings
+    return cur, poeings
 
 def add_second_sheet(wb: Workbook, tree):
     ws = wb.create_sheet(title=SHEET2_NAME)
@@ -525,7 +468,6 @@ def add_second_sheet(wb: Workbook, tree):
         all_poeings.extend(poe)
         r += 1
 
-    # Append PoKorb rows (mirror disabled state from the corresponding PoEing).
     for pe in all_poeings:
         parent_app = pe["path"][-2] if len(pe["path"]) >= 2 else ""
         label  = f"PoKorb_{parent_app}" if parent_app else "PoKorb"
@@ -560,47 +502,8 @@ def add_second_sheet(wb: Workbook, tree):
     return ws
 
 # ---------------------------------------------------------------------------
-# Sheet 3: Geschäftsrollen (with spacer column & borders)
+# Sheet 3: Geschäftsrollen
 # ---------------------------------------------------------------------------
-
-def get_label(node):
-    return (node.get("appName") or node.get("name") or "").strip()
-
-def get_desc(node):
-    return (node.get("description") or "").strip()
-
-def is_ablagen_label(lbl: str) -> bool:
-    l = (lbl or "").lower()
-    return l.startswith("ab_") or l.startswith("pe_") or l.startswith("sb_") or l.startswith("sb-") or l.startswith("sb-thema")
-
-def is_ltg_or_allg_for(lbl: str, base: str) -> bool:
-    if "_" not in lbl:
-        return False
-    prefix, suffix = lbl.split("_", 1)
-    return (prefix in {"Ltg", "Allg"}) and (suffix == base)
-
-def preorder_nodes(node):
-    yield node
-    for ch in node.get("children") or []:
-        yield from preorder_nodes(ch)
-
-def collect_ablagen_nodes_excluding_ab_org(children, org_label: str):
-    """
-    If there is an 'Ab_{org}' root, skip that node itself and include its descendants;
-    otherwise include any ablagen-like subtree roots.
-    """
-    out = []
-    skip_label = f"Ab_{org_label}"
-    for ch in children or []:
-        lbl = get_label(ch)
-        if lbl.lower().startswith("ab_") and lbl == skip_label:
-            for i, n in enumerate(preorder_nodes(ch)):
-                if i == 0:
-                    continue
-                out.append(n)
-        elif is_ablagen_label(lbl):
-            out.extend(list(preorder_nodes(ch)))
-    return out
 
 def fill_row(ws, row, start_col, end_col, fill):
     for c in range(start_col, end_col + 1):
@@ -608,20 +511,22 @@ def fill_row(ws, row, start_col, end_col, fill):
 
 def roles_sheet_header(ws, roles_count: int):
     """
-    Header with spacer column:
-      col1: Ablagen/Hierarchieelemente
-      col2: spacer
-      col3: Beschreibung
-      col4..: Role blocks (Lesen | Schreiben | LA) × roles_count
+    New header layout:
+      - Row 1: merge A1:C1 and write 'Benutzers' (centered)
+      - Row 2: col1 'Ablagen / Hierarchieelemente', col2 spacer, col3 'Beschreibung'
+      - Role blocks remain (row1 merged across 3 cols per role, row2 subheaders)
     """
-    h1 = ws.cell(row=1, column=1, value="Ablagen / Hierarchieelemente"); h1.font = BLACKB; h1.alignment = LEFT
-    ws.merge_cells(start_row=1, start_column=1, end_row=2, end_column=1)
 
-    # spacer col 2 (empty on purpose)
+    # Row 1 labels (no vertical merge)
+    ws.cell(row=2, column=1, value="Ablagen / Hierarchieelemente").font = BLACKB
+    ws.cell(row=2, column=1).alignment = LEFT
 
-    h2 = ws.cell(row=1, column=3, value="Beschreibung"); h2.font = BLACKB; h2.alignment = LEFT
-    ws.merge_cells(start_row=1, start_column=3, end_row=2, end_column=3)
+    # spacer column 2 intentionally left empty
 
+    ws.cell(row=2, column=3, value="Beschreibung").font = BLACKB
+    ws.cell(row=2, column=3).alignment = LEFT
+
+    # Role blocks
     col = 4
     for k in range(roles_count):
         ws.merge_cells(start_row=1, start_column=col, end_row=1, end_column=col+2)
@@ -640,11 +545,11 @@ def roles_sheet_header(ws, roles_count: int):
 
 def apply_role_vertical_borders(ws, roles_count: int, end_row: int):
     """
-    Vertical separators:
+    Add vertical separators:
       - thin gray between Lesen | Schreiben | LA
-      - thick after each role group
+      - thick after each role group and at far right
       - thin gray at the left of Beschreibung (col 3)
-      - thick at far right
+      - thin gray at the left of spacer (col 2)  <-- NEW
     """
     total_cols = 3 + roles_count * 3
 
@@ -663,16 +568,25 @@ def apply_role_vertical_borders(ws, roles_count: int, end_row: int):
             c3 = ws.cell(row=r, column=last)
             c3.border = Border(left=c3.border.left, right=THICK, top=c3.border.top, bottom=c3.border.bottom)
 
+    # NEW: thin border at the start of spacer column (left of col 2)
+    for r in range(1, end_row + 1):
+        sp = ws.cell(row=r, column=2)
+        b = sp.border
+        sp.border = Border(left=GRID_GRAY, right=b.right, top=b.top, bottom=b.bottom)
+
+    # Existing: thin gray border at left of Beschreibung (col 3)
     for r in range(1, end_row + 1):
         desc_cell = ws.cell(row=r, column=3)
         b = desc_cell.border
         desc_cell.border = Border(left=GRID_GRAY, right=b.right, top=b.top, bottom=b.bottom)
 
+    # Thick right edge
     for r in range(1, end_row + 1):
         cell = ws.cell(row=r, column=total_cols)
         cell.border = Border(left=cell.border.left, right=THICK, top=cell.border.top, bottom=cell.border.bottom)
 
 def apply_gray_horizontal_grid(ws, start_row: int, end_row: int, total_cols: int):
+    # header bottom now is row 2
     for c in range(1, total_cols + 1):
         cell = ws.cell(row=2, column=c)
         b = cell.border
@@ -745,13 +659,11 @@ def write_roles_for_node(ws, node, row_idx, roles_count):
 
     children = node.get("children") or []
 
-    # Org section header
     write_role_row(ws, row_idx, org_label, get_desc(node), total_cols, fill_full_row=TITLE_GRAY)
     if node.get("enabled") is False:
         gray_out_row_full(ws, row_idx, total_cols)
     row_idx += 1
 
-    # Ltg / Allg under the org
     ltg_allg_nodes = [ch for ch in children if is_ltg_or_allg_for(get_label(ch), org_label)]
     for ch in ltg_allg_nodes:
         write_role_row(ws, row_idx, get_label(ch), get_desc(ch), total_cols, fill_full_row=PALEGR)
@@ -759,14 +671,11 @@ def write_roles_for_node(ws, node, row_idx, roles_count):
             gray_out_row_full(ws, row_idx, total_cols)
         row_idx += 1
 
-    # Spacer
     row_idx += 1
 
-    # Section header for Ab_{Org}
     write_role_row(ws, row_idx, f"Ab_{org_label}", "", total_cols, fill_full_row=TITLE_GRAY)
     row_idx += 1
 
-    # Ablagen subtree rows
     ablagen_nodes = collect_ablagen_nodes_excluding_ab_org(children, org_label)
     for n in ablagen_nodes:
         write_role_row(ws, row_idx, get_label(n), get_desc(n), total_cols, fill_full_row=PALEGR)
@@ -774,10 +683,8 @@ def write_roles_for_node(ws, node, row_idx, roles_count):
             gray_out_row_full(ws, row_idx, total_cols)
         row_idx += 1
 
-    # Spacer after the ablagen block
     row_idx += 1
 
-    # Recurse into remaining children
     ablagen_roots = {get_label(ch) for ch in children if is_ablagen_label(get_label(ch))}
     ltg_allg_set  = {get_label(ch) for ch in ltg_allg_nodes}
     for ch in children:
@@ -789,7 +696,6 @@ def write_roles_for_node(ws, node, row_idx, roles_count):
     return row_idx
 
 def find_last_populated_row(ws, total_cols: int) -> int:
-    """Find last data row by checking cols 1 or 3 (name/description)."""
     max_row = ws.max_row
     for r in range(max_row, 2, -1):
         if (ws.cell(row=r, column=1).value not in (None, "")
@@ -812,9 +718,24 @@ def add_third_sheet(wb: Workbook, tree, roles_count:int):
     total_cols = 3 + roles_count * 3
     end_row = find_last_populated_row(ws, total_cols)
 
+    # Apply vertical/horizontal grid and bottom borders
     apply_role_vertical_borders(ws, roles_count, end_row)
     apply_gray_horizontal_grid(ws, start_row=3, end_row=end_row, total_cols=total_cols)
     apply_thick_bottom(ws, total_cols, end_row)
+
+    # --- Add thin border to the left of spacer column (col 2) ---
+    for r in range(1, end_row + 1):
+        c = ws.cell(row=r, column=2)
+        b = c.border
+        c.border = Border(left=GRID_GRAY, right=b.right, top=b.top, bottom=b.bottom)
+
+    # --- Add merged "Benutzers" label at the bottom ---
+    bottom_row = end_row + 1
+    ws.merge_cells(start_row=bottom_row, start_column=1, end_row=bottom_row, end_column=3)
+    label_cell = ws.cell(row=bottom_row, column=1, value="Benutzers")
+    label_cell.font = BLACKB
+    label_cell.alignment = LEFT
+    label_cell.border = BOX
 
     ws.freeze_panes = "D3"
     autosize_columns(ws, min_w=8, max_w=60)
