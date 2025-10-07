@@ -365,6 +365,11 @@ window.textAssist = function (opts = {}) {
     }
   };
 };
+
+// Inform Livewire when the browser/tab is closing
+window.addEventListener('beforeunload', () => {
+    Livewire.dispatch('browser-unload');
+});
 </script>
 
 

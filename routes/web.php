@@ -15,13 +15,12 @@ Route::get('/', fn () => redirect('/importer'))->name('home');
 Route::middleware(['auth'])->group(function () {
     // Importer
     Route::get('/importer', TreeIndex::class)->name('importer.index');
-    Route::get('/importer/create', Importer::class)->name('importer.create');
     Route::get('/importer/{tree}', TreeEditor::class)->name('importer.edit');
 
     Route::get('/feedback/kanban', \App\Livewire\FeedbackKanban::class)
         ->name('feedback.kanban');
 
-
+    Route::get('/trees/{id}/edit', TreeEditor::class)->name('trees.edit');
     // Excel download
     Route::get('/download-excel/{filename}', function ($filename) {
         $path = 'temp/' . $filename;

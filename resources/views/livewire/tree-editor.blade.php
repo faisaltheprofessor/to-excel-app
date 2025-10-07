@@ -1,5 +1,61 @@
-{{-- resources/views/livewire/tree-editor.blade.php --}}
 <div class="w-1/2 m:w-3/4 mx-auto h-screen overflow-hidden flex flex-col">
+    {{-- Status & Actions --}}
+    <div class="px-6 py-3 border-b bg-zinc-50 dark:bg-zinc-900/40 flex items-center justify-between">
+        <div class="flex items-center gap-3 text-sm">
+        <span class="px-2 py-1 rounded border">
+            Version: {{ $version }}
+        </span>
+            <span class="px-2 py-1 rounded border {{ $status === 'abgeschlossen' ? 'bg-emerald-50' : 'bg-amber-50' }}">
+            Status: {{ ucfirst($status) }}
+        </span>
+
+            @if($lockedBy && $status !== 'abgeschlossen')
+                <span class="px-2 py-1 rounded border bg-amber-100">
+                Gesperrt von User #{{ $lockedBy }} seit {{ $lockedAt }}
+            </span>
+            @endif
+        </div>
+
+        <div class="flex items-center gap-2">
+            @if(!$editable && $status !== 'abgeschlossen')
+                <flux:button variant="primary" wire:click="startEdit">Bearbeiten</flux:button>
+            @endif
+
+            @if($editable)
+                <flux:button variant="default" wire:click="save">Speichern</flux:button>
+                <flux:button variant="ghost" wire:click="releaseLock">Bearbeitung beenden</flux:button>
+                <flux:button variant="destructive"
+                             :disabled="$status === 'abgeschlossen'"
+                             x-on:click="confirm('Wirklich abschließen? Danach nur noch als neue Version editierbar.') && $wire.finalizeTree()">
+                    Abschließen
+                </flux:button>
+            @endif
+
+            <flux:dropdown text="Versionen">
+                <div class="p-2 space-y-1 w-64 max-h-80 overflow-auto">
+                    @foreach($versions as $v)
+                        <div class="flex items-center justify-between py-1">
+                            <div>
+                                <div class="text-sm font-medium">v{{ $v['version'] }} (ID {{ $v['id'] }})</div>
+                                <div class="text-xs text-zinc-500">
+                                    {{ $v['status'] }} @if($v['closed_at']) • {{ $v['closed_at'] }} @endif
+                                    @if($v['deleted_at']) • gelöscht @endif
+                                </div>
+                            </div>
+                            <div class="flex gap-1">
+                                <flux:button size="xs" href="{{ route('trees.edit', ['id' => $v['id']]) }}">Öffnen</flux:button>
+                                @if($v['status'] === 'abgeschlossen')
+                                    <flux:button size="xs" variant="primary" wire:click="createNewVersionFrom({{ $v['id'] }})">
+                                        Neue Version
+                                    </flux:button>
+                                @endif
+                            </div>
+                        </div>
+                    @endforeach
+                </div>
+            </flux:dropdown>
+        </div>
+    </div>
     {{-- Header: title (left) + actions (right) --}}
     <div class="p-6 pb-2 flex flex-col gap-2 shrink-0">
         <div class="flex items-center gap-3">
@@ -61,7 +117,7 @@
         <flux:card class="h-full overflow-auto" data-tree-root>
             <div class="pr-2">
                 <ul class="space-y-1 pb-28">
-                    @foreach ($tree as $index => $node)
+                    @foreach ($treeData as $index => $node)
                         @include('livewire.partials.tree-node', ['node' => $node, 'path' => [$index]])
                     @endforeach
                 </ul>

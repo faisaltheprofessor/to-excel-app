@@ -3,29 +3,39 @@
 namespace App\Livewire;
 
 use App\Models\OrganizationStructure as TreeModel;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Storage;
+use Livewire\Attributes\On;
 use Livewire\Component;
 
 class TreeEditor extends Component
 {
-    public $tree = [];
+    // ===== Internal tree state (renamed to avoid collision with route param) =====
+    public array $treeData = [];   // was: public array $tree
+
+    // Expose read-only computed property so Blade can keep using `$tree`
+    public function getTreeProperty(): array
+    {
+        return $this->treeData;
+    }
+
     public ?int $treeId = null;
     public string $title = '';
 
-    public $newNodeName = '';
-    public $newAppName = '';
+    public string $newNodeName = '';
+    public string $newAppName = '';
 
     public $selectedNodePath = null;
-    public $addWithStructure = false;
+    public bool $addWithStructure = false;
 
-    public $generatedJson = '';
+    public string $generatedJson = '';
     public string $downloadFilename = '';
     public bool $withTimestamp = true;
 
     public $editNodePath = null;
     public $editField = null;
-    public $editValue = '';
+    public string $editValue = '';
 
     public array $pendingFromPath = [];
     public array $pendingToPath = [];
@@ -52,7 +62,7 @@ class TreeEditor extends Component
 
     protected array $fixedNames = ['Ltg', 'Allg', 'AblgOE', 'PoEing', 'SB'];
 
-    protected $predefinedStructure = [
+    protected array $predefinedStructure = [
         ['name' => 'Ltg', 'children' => []],
         ['name' => 'Allg', 'children' => []],
         [
@@ -64,33 +74,232 @@ class TreeEditor extends Component
         ],
     ];
 
-    public function mount(TreeModel $tree)
+    // ===== Locking / versioning / meta =====
+    public bool $editable = false;        // single-editor mode
+    public ?string $versionGroupId = null;
+    public int $version = 1;
+    public string $status = 'draft';      // draft | in_progress | abgeschlossen
+    public ?int $lockedBy = null;
+    public ?string $lockedAt = null;
+    public array $versions = [];
+
+    // Route-model binding still uses $tree (the route param), no collision now
+    public function mount(TreeModel $tree, ?bool $edit = null)
     {
         $this->treeId = $tree->id;
         $this->title = $this->normalizeTitle((string)$tree->title);
 
-        $data = $tree->data ?? [];
-        $this->tree = $this->unwrapIfWrapped($data);
+        // Read from tree_json (array cast in model)
+        $data = $tree->tree_json ?? [];
+        $this->treeData = $this->unwrapIfWrapped(is_array($data) ? $data : (json_decode((string)$data, true) ?? []));
 
-        $this->sanitizeDeletionFlags($this->tree);
-        $this->sanitizeEnabledFlags($this->tree);
-        $this->refreshAppNames($this->tree, null, null);
+        // Normalize/refresh your flags & derived fields
+        $this->sanitizeDeletionFlags($this->treeData);
+        $this->sanitizeEnabledFlags($this->treeData);
+        $this->refreshAppNames($this->treeData, null, null);
+
+        // Load meta
+        $this->versionGroupId = $tree->version_group_id;
+        $this->version        = (int) $tree->version;
+        $this->status         = (string) $tree->status;
+        $this->lockedBy       = $tree->locked_by;
+        $this->lockedAt       = optional($tree->locked_at)?->toDateTimeString();
+
+        // Versions list
+        if ($this->versionGroupId) {
+            $this->versions = TreeModel::group($this->versionGroupId)
+                ->select('id','version','status','closed_at','deleted_at','title')
+                ->withTrashed()
+                ->orderBy('version')
+                ->get()
+                ->map(fn($t) => [
+                    'id'         => $t->id,
+                    'title'      => $t->title,
+                    'version'    => (int)$t->version,
+                    'status'     => (string)$t->status,
+                    'closed_at'  => optional($t->closed_at)?->toDateTimeString(),
+                    'deleted_at' => optional($t->deleted_at)?->toDateTimeString(),
+                ])->toArray();
+        }
+
+        if ($edit) {
+            $this->startEdit();
+        }
     }
 
+    public function render()
+    {
+        return view('livewire.tree-editor');
+    }
+
+    // ===== Locking =====
+    public function startEdit(): void
+    {
+        $model = $this->model();
+
+        if ($model->status === 'abgeschlossen') {
+            $this->editable = false;
+            $this->dispatch('toast', type:'error', message:'Diese Version ist abgeschlossen.');
+            return;
+        }
+
+        $ok = $model->acquireLock(Auth::id());
+        $model->refresh();
+
+        $this->lockedBy = $model->locked_by;
+        $this->lockedAt = optional($model->locked_at)?->toDateTimeString();
+        $this->status   = (string) $model->status;
+
+        $this->editable = $ok && (int)$model->locked_by === (int)Auth::id();
+
+        $this->dispatch('toast',
+            type: $this->editable ? 'success' : 'warning',
+            message: $this->editable
+                ? 'Bearbeitung gestartet. Sperre gesetzt.'
+                : 'Der Baum wird gerade von einem anderen Benutzer bearbeitet.'
+        );
+    }
+
+    public function releaseLock(): void
+    {
+        $model = $this->model();
+        if ($model->isLocked() && (int)$model->locked_by === (int)Auth::id()) {
+            $model->releaseLock(Auth::id());
+        }
+        $this->editable = false;
+        $this->lockedBy = null;
+        $this->lockedAt = null;
+        $this->status   = (string) $model->status;
+        $this->dispatch('toast', type:'info', message:'Bearbeitung beendet. Sperre freigegeben.');
+    }
+
+    public function finalizeTree(): void
+    {
+        $model = $this->model();
+
+        if (!($model->isLocked() && (int)$model->locked_by === (int)Auth::id())) {
+            $this->dispatch('toast', type:'warning', message:'Nur der aktive Bearbeiter kann abschließen.');
+            return;
+        }
+
+        $model->finalize();
+        $model->audits()->create([
+            'user_id' => Auth::id(),
+            'action'  => 'finalized',
+        ]);
+
+        $this->editable = false;
+        $this->status   = 'abgeschlossen';
+        $this->lockedBy = null;
+        $this->lockedAt = null;
+
+        $this->refreshVersions();
+        $this->dispatch('toast', type:'success', message:'Version abgeschlossen.');
+    }
+
+    public function createNewVersionFrom(int $versionId): void
+    {
+        $base = TreeModel::findOrFail($versionId);
+        if ($base->status !== 'abgeschlossen') {
+            $this->dispatch('toast', type:'warning', message:'Nur abgeschlossene Versionen können verzweigt werden.');
+            return;
+        }
+
+        $new = $base->cloneToNewVersion(Auth::id());
+
+        $base->audits()->create([
+            'user_id' => Auth::id(),
+            'action'  => 'version_created',
+            'before'  => ['from_version_id' => $base->id],
+            'after'   => ['to_version_id' => $new->id],
+        ]);
+
+        $this->redirect(route('trees.edit', ['id' => $new->id, 'edit' => 1]), navigate: true);
+    }
+
+    public function delete()
+    {
+        $model = $this->model();
+        if ($model->delete()) {
+            $model->audits()->create([
+                'user_id' => Auth::id(),
+                'action'  => 'deleted',
+            ]);
+            return $this->redirect('/importer', navigate: true);
+        }
+    }
+
+    protected function refreshVersions(): void
+    {
+        $group = $this->versionGroupId;
+        if (!$group) { $this->versions = []; return; }
+
+        $this->versions = TreeModel::group($group)
+            ->select('id','version','status','closed_at','deleted_at','title')
+            ->withTrashed()
+            ->orderBy('version')
+            ->get()
+            ->map(fn($t) => [
+                'id'         => $t->id,
+                'title'      => $t->title,
+                'version'    => (int)$t->version,
+                'status'     => (string)$t->status,
+                'closed_at'  => optional($t->closed_at)?->toDateTimeString(),
+                'deleted_at' => optional($t->deleted_at)?->toDateTimeString(),
+            ])->toArray();
+    }
+
+    #[On('browser-unload')]
+    public function onBrowserUnload(): void
+    {
+        $model = $this->model();
+        if ($model->isLocked() && (int)$model->locked_by === (int)Auth::id()) {
+            $model->releaseLock(Auth::id());
+        }
+    }
+
+    // ===== Persist (writes to tree_json) =====
     protected function persist(): void
     {
         if (!$this->treeId) return;
+
         $model = TreeModel::find($this->treeId);
         if (!$model) return;
 
+        if ($model->status !== 'abgeschlossen' && !($model->isLocked() && (int)$model->locked_by === (int)Auth::id())) {
+            $this->dispatch('toast', type:'warning', message:'Sperre erforderlich, um zu speichern.');
+            return;
+        }
+
+        $before = [
+            'title' => $model->title,
+            'tree_json' => $model->tree_json,
+        ];
+
         $model->update([
-            'title' => $this->title !== '' ? $this->title : $model->title,
-            'data' => $this->tree,
+            'title'     => $this->title !== '' ? $this->title : $model->title,
+            'tree_json' => $this->treeData,
+        ]);
+
+        if ($model->status !== 'abgeschlossen') {
+            $model->locked_at = now();
+            $model->save();
+        }
+
+        $model->audits()->create([
+            'user_id' => Auth::id(),
+            'action'  => 'updated',
+            'before'  => $before,
+            'after'   => [
+                'title'     => $model->title,
+                'tree_json' => $model->tree_json,
+            ],
         ]);
 
         $this->dispatch('autosaved');
     }
 
+    // ===== Title etc. (unchanged) =====
     public function updatedTitle(): void
     {
         $candidate = $this->translitUmlauts(
@@ -136,6 +345,7 @@ class TreeEditor extends Component
     }
     public function updatedRolesPlaceholderCount() { $this->resetErrorBag('generate'); }
 
+    // ===== Node ops (same as your original, but use $this->treeData) =====
     public function addNode()
     {
         $nameInput = $this->translitUmlauts(trim((string)$this->newNodeName));
@@ -206,17 +416,17 @@ class TreeEditor extends Component
             );
         }
 
-        $targetPath = $this->pathExists($this->tree, $this->selectedNodePath) ? $this->selectedNodePath : null;
+        $targetPath = $this->pathExists($this->treeData, $this->selectedNodePath) ? $this->selectedNodePath : null;
 
         if ($targetPath === null) {
-            $this->tree[] = $newNode;
+            $this->treeData[] = $newNode;
         } else {
-            $this->addChildAtPathSafely($this->tree, $targetPath, $newNode);
+            $this->addChildAtPathSafely($this->treeData, $targetPath, $newNode);
         }
 
-        $this->refreshAppNames($this->tree, null, null);
-        $this->sanitizeEnabledFlags($this->tree);
-        $this->sanitizeDeletionFlags($this->tree);
+        $this->refreshAppNames($this->treeData, null, null);
+        $this->sanitizeEnabledFlags($this->treeData);
+        $this->sanitizeDeletionFlags($this->treeData);
         $this->persist();
 
         $this->newNodeName = '';
@@ -229,7 +439,7 @@ class TreeEditor extends Component
     public function promptDeleteNode($path): void
     {
         $this->confirmDeleteNodePath = is_array($path) ? $path : [];
-        $this->confirmDeleteNodeName = $this->getNameAtPath($this->tree, $this->confirmDeleteNodePath) ?? '(ohne Name)';
+        $this->confirmDeleteNodeName = $this->getNameAtPath($this->treeData, $this->confirmDeleteNodePath) ?? '(ohne Name)';
         $this->confirmDeleteNodePathStr = $this->pathToString($this->confirmDeleteNodePath);
         $this->dispatch('open-delete-node');
     }
@@ -246,18 +456,18 @@ class TreeEditor extends Component
 
     public function removeNode($path)
     {
-        $node = $this->getNodeAtPath($this->tree, $path);
+        $node = $this->getNodeAtPath($this->treeData, $path);
         if (!$node) return;
         if ($this->isFixedName($node['name'] ?? '')) return;
 
         $parentPath = (is_array($path) && count($path) > 0) ? array_slice($path, 0, -1) : null;
 
-        $this->removeNodeAtPath($this->tree, $path);
-        $this->refreshAppNames($this->tree, null, null);
+        $this->removeNodeAtPath($this->treeData, $path);
+        $this->refreshAppNames($this->treeData, null, null);
 
-        if (is_array($parentPath) && count($parentPath) > 0 && $this->pathExists($this->tree, $parentPath)) {
+        if (is_array($parentPath) && count($parentPath) > 0 && $this->pathExists($this->treeData, $parentPath)) {
             $this->selectedNodePath = $parentPath;
-        } elseif (!empty($this->tree)) {
+        } elseif (!empty($this->treeData)) {
             $this->selectedNodePath = [0];
         } else {
             $this->selectedNodePath = null;
@@ -267,18 +477,18 @@ class TreeEditor extends Component
         $this->editField = null;
         $this->editValue = '';
 
-        $this->sanitizeEnabledFlags($this->tree);
-        $this->sanitizeDeletionFlags($this->tree);
+        $this->sanitizeEnabledFlags($this->treeData);
+        $this->sanitizeDeletionFlags($this->treeData);
         $this->persist();
     }
 
-    public function selectNode($path) { $this->selectedNodePath = $this->pathExists($this->tree, $path) ? $path : null; }
+    public function selectNode($path) { $this->selectedNodePath = $this->pathExists($this->treeData, $path) ? $path : null; }
 
     public function startInlineEdit($path, $field)
     {
         if (!in_array($field, ['name', 'appName'])) return;
 
-        $node = $this->getNodeAtPath($this->tree, $path);
+        $node = $this->getNodeAtPath($this->treeData, $path);
         if (!$node) return;
 
         $this->editNodePath = $path;
@@ -305,7 +515,7 @@ class TreeEditor extends Component
             return;
         }
 
-        $before = $this->getNodeAtPath($this->tree, $this->editNodePath);
+        $before = $this->getNodeAtPath($this->treeData, $this->editNodePath);
         $oldName = $before['name'] ?? null;
         $oldApp = $before['appName'] ?? null;
         $wasManual = (bool)($before['appNameManual'] ?? false);
@@ -321,16 +531,16 @@ class TreeEditor extends Component
             $fields['appNameManual'] = true;
         }
 
-        $this->setNodeFieldsByPath($this->tree, $this->editNodePath, $fields);
+        $this->setNodeFieldsByPath($this->treeData, $this->editNodePath, $fields);
 
-        $this->refreshAppNames($this->tree, null, null);
+        $this->refreshAppNames($this->treeData, null, null);
 
         $this->editNodePath = null;
         $this->editField = null;
         $this->editValue = '';
 
-        $this->sanitizeEnabledFlags($this->tree);
-        $this->sanitizeDeletionFlags($this->tree);
+        $this->sanitizeEnabledFlags($this->treeData);
+        $this->sanitizeDeletionFlags($this->treeData);
         $this->persist();
     }
 
@@ -343,7 +553,7 @@ class TreeEditor extends Component
 
     public function generateJson()
     {
-        $wrapped = $this->wrapForExport($this->tree);
+        $wrapped = $this->wrapForExport($this->treeData);
         $this->generatedJson = json_encode($wrapped, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE);
     }
 
@@ -370,7 +580,7 @@ class TreeEditor extends Component
         }
 
         $payload = [
-            'tree' => $this->wrapForExport($this->tree),
+            'tree' => $this->wrapForExport($this->treeData),
             'sheets' => $selectedSheets,
             'rolesCount' => $this->sheetRoles ? $this->rolesPlaceholderCount : 0,
         ];
@@ -396,26 +606,27 @@ class TreeEditor extends Component
         $this->dispatch('excel-ready', filename: $finalName);
     }
 
-protected function computeDownloadBasename(): string
-{
-    $raw = trim((string)$this->downloadFilename);
-    $base = $raw !== '' ? $raw : ('Importer-Datei-' . ($this->title ?? ''));
-    $base = $this->translitUmlauts($base);
-    $base = preg_replace('/\.xlsx$/ui', '', $base);
-    $base = preg_replace('/[<>:"\/\\\\|?*\x00-\x1F]/u', '-', $base);
-    $base = preg_replace('/\s+/u', ' ', $base);
-    $base = trim($base, " .-");
-    if ($base === '') $base = 'Importer-Datei';
-    if (mb_strlen($base) > 120) $base = mb_substr($base, 0, 120);
-    $base = str_replace(' ', '_', $base);
+    protected function computeDownloadBasename(): string
+    {
+        $raw = trim((string)$this->downloadFilename);
+        $base = $raw !== '' ? $raw : ('Importer-Datei-' . ($this->title ?? ''));
+        $base = $this->translitUmlauts($base);
+        $base = preg_replace('/\.xlsx$/ui', '', $base);
+        $base = preg_replace('/[<>:"\/\\\\|?*\x00-\x1F]/u', '-', $base);
+        $base = preg_replace('/\s+/u', ' ', $base);
+        $base = trim($base, " .-");
+        if ($base === '') $base = 'Importer-Datei';
+        if (mb_strlen($base) > 120) $base = mb_substr($base, 0, 120);
+        $base = str_replace(' ', '_', $base);
 
-    if ($this->withTimestamp) {
-        $timestamp = date("Y-m-d_H-i");
-        $base = $timestamp . '_' . $base;
+        if ($this->withTimestamp) {
+            $timestamp = date("Y-m-d_H-i");
+            $base = $timestamp . '_' . $base;
+        }
+
+        return $base;
     }
 
-    return $base;
-}
     protected function wrapForExport(array $nodes): array
     {
         $clean = $this->stripInternal($nodes);
@@ -452,6 +663,7 @@ protected function computeDownloadBasename(): string
         return $out;
     }
 
+    // ===== Move workflow =====
     public function preparePendingMove($fromPath, $toPath, $position = 'into'): void
     {
         $this->pendingFromPath = is_array($fromPath) ? $fromPath : [];
@@ -463,8 +675,8 @@ protected function computeDownloadBasename(): string
             ? $this->pendingToPath
             : array_slice($this->pendingToPath, 0, -1);
 
-        $this->pendingOldParentName = $this->getNameAtPath($this->tree, $oldParentPath) ?? '';
-        $this->pendingNewParentName = $this->getNameAtPath($this->tree, $newParentPath) ?? '';
+        $this->pendingOldParentName = $this->getNameAtPath($this->treeData, $oldParentPath) ?? '';
+        $this->pendingNewParentName = $this->getNameAtPath($this->treeData, $newParentPath) ?? '';
 
         $this->pendingOldParentPathStr = $this->pathToString($oldParentPath);
         $this->pendingNewParentPathStr = $this->pathToString($newParentPath);
@@ -511,10 +723,10 @@ protected function computeDownloadBasename(): string
 
     public function moveNode($fromPath, $toPath, $position = 'into'): void
     {
-        if (!$this->pathExists($this->tree, $fromPath) || !$this->pathExists($this->tree, $toPath)) return;
+        if (!$this->pathExists($this->treeData, $fromPath) || !$this->pathExists($this->treeData, $toPath)) return;
         if ($fromPath === $toPath || $this->isAncestorPath($fromPath, $toPath)) return;
 
-        $moved = $this->extractNodeAtPath($this->tree, $fromPath);
+        $moved = $this->extractNodeAtPath($this->treeData, $fromPath);
         if ($moved === null) return;
 
         $newPath = null;
@@ -529,17 +741,17 @@ protected function computeDownloadBasename(): string
             }
 
             $insertIndex = ($position === 'before') ? $targetIndex : $targetIndex + 1;
-            $this->insertSiblingAt($this->tree, $parentPath, $insertIndex, $moved);
+            $this->insertSiblingAt($this->treeData, $parentPath, $insertIndex, $moved);
             $newPath = array_merge($parentPath, [$insertIndex]);
         } else {
-            $this->appendChildAtPath($this->tree, $toPath, $moved);
-            $newChildIndex = $this->lastChildIndexAtPath($this->tree, $toPath);
+            $this->appendChildAtPath($this->treeData, $toPath, $moved);
+            $newChildIndex = $this->lastChildIndexAtPath($this->treeData, $toPath);
             $newPath = array_merge($toPath, [$newChildIndex]);
         }
 
-        $this->refreshAppNames($this->tree, null, null);
-        $this->sanitizeEnabledFlags($this->tree);
-        $this->sanitizeDeletionFlags($this->tree);
+        $this->refreshAppNames($this->treeData, null, null);
+        $this->sanitizeEnabledFlags($this->treeData);
+        $this->sanitizeDeletionFlags($this->treeData);
         $this->persist();
 
         $this->selectedNodePath = $newPath;
@@ -558,6 +770,7 @@ protected function computeDownloadBasename(): string
         return true;
     }
 
+    // ===== Helpers =====
     protected function unwrapIfWrapped(array $data): array
     {
         if (
@@ -622,9 +835,9 @@ protected function computeDownloadBasename(): string
             ? $checked
             : (in_array($checked, [1, '1', 'true', 'TRUE', 'on'], true));
 
-        $this->setEnabledAtPath($this->tree, $path, (bool)$val, true);
+        $this->setEnabledAtPath($this->treeData, $path, (bool)$val, true);
 
-        $this->sanitizeEnabledFlags($this->tree);
+        $this->sanitizeEnabledFlags($this->treeData);
         $this->persist();
     }
 
@@ -681,13 +894,13 @@ protected function computeDownloadBasename(): string
     {
         if ($path === null || !is_array($path) || empty($path)) return null;
 
-        $parentName = $this->getNameAtPath($this->tree, $path);
+        $parentName = $this->getNameAtPath($this->treeData, $path);
         if ($parentName === null) return null;
 
         if ($parentName === 'AblgOE') {
             $gpPath = $path;
             array_pop($gpPath);
-            $grandparentName = $this->getNameAtPath($this->tree, $gpPath);
+            $grandparentName = $this->getNameAtPath($this->treeData, $gpPath);
             return $grandparentName ?? null;
         }
 
@@ -844,7 +1057,7 @@ protected function computeDownloadBasename(): string
     protected function getPathNames(array $path): array
     {
         $names = [];
-        $ptr = $this->tree;
+        $ptr = $this->treeData;
         foreach ($path as $idx) {
             if (!isset($ptr[$idx])) break;
             $names[] = $ptr[$idx]['name'] ?? '';
@@ -859,18 +1072,7 @@ protected function computeDownloadBasename(): string
         return empty($names) ? '(Wurzel)' : implode(' / ', $names);
     }
 
-    public function delete()
-    {
-        if (TreeModel::find($this->treeId)->delete()) {
-            return $this->redirect('/importer', navigate: true);
-        }
-    }
-
-    public function render()
-    {
-        return view('livewire.tree-editor');
-    }
-
+    // ===== Validation helpers =====
     protected function invalidNameReason(string $name): ?string
     {
         if (mb_strlen($name) > 255) return 'Name darf höchstens 255 Zeichen lang sein.';
@@ -984,5 +1186,10 @@ protected function computeDownloadBasename(): string
     protected function normalizeSbPrefix(string $s): string
     {
         return preg_replace('/^SB/u', 'Sb', $s);
+    }
+
+    protected function model(): TreeModel
+    {
+        return TreeModel::findOrFail($this->treeId);
     }
 }
