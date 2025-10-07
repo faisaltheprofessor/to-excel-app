@@ -8,15 +8,28 @@
             </flux:text>
 
             <div class="mt-4 space-y-5">
-                <flux:input
-                    type="text"
-                    id="excelFilename"
-                    name="downloadFilename"
-                    wire:model.defer="downloadFilename"
-                    label="Dateiname"
-                    placeholder="Importer-Datei-{{ $title ?? '' }}"
-                    class="w-full"
-                />
+                <div class="flex justify-center items-center gap-4 w-full">
+                    <div class="w-3/4">
+                        <flux:input
+                            type="text"
+                            id="excelFilename"
+                            name="downloadFilename"
+                            wire:model.defer="downloadFilename"
+                            label="Dateiname"
+                            placeholder="Importer-Datei-{{ $title ?? '' }}"
+                            class="w-full"
+                        />
+                    </div>
+
+                    <div class="flex items-center justify-center mt-6">
+                        <flux:checkbox
+                            wire:model="withTimestamp"
+                            label="Zeitstempel"
+                            size="sm"
+                        />
+                    </div>
+                </div>
+
                 <p class="text-xs text-gray-500 mt-1">
                     Wird automatisch auf <strong>Importer-Datei-{{ $title ?? '' }}</strong> gesetzt, falls leer.
                     Die Endung <code>.xlsx</code> wird automatisch hinzugefügt.

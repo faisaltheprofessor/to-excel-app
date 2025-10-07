@@ -21,6 +21,7 @@ class TreeEditor extends Component
 
     public $generatedJson = '';
     public string $downloadFilename = '';
+    public bool $withTimestamp = true;
 
     public $editNodePath = null;
     public $editField = null;
@@ -395,20 +396,26 @@ class TreeEditor extends Component
         $this->dispatch('excel-ready', filename: $finalName);
     }
 
-    protected function computeDownloadBasename(): string
-    {
-        $raw = trim((string)$this->downloadFilename);
-        $base = $raw !== '' ? $raw : ('Importer-Datei-' . ($this->title ?? ''));
-        $base = $this->translitUmlauts($base);
-        $base = preg_replace('/\.xlsx$/ui', '', $base);
-        $base = preg_replace('/[<>:"\/\\\\|?*\x00-\x1F]/u', '-', $base);
-        $base = preg_replace('/\s+/u', ' ', $base);
-        $base = trim($base, " .-");
-        if ($base === '') $base = 'Importer-Datei';
-        if (mb_strlen($base) > 120) $base = mb_substr($base, 0, 120);
-        return str_replace(' ', '_', $base);
+protected function computeDownloadBasename(): string
+{
+    $raw = trim((string)$this->downloadFilename);
+    $base = $raw !== '' ? $raw : ('Importer-Datei-' . ($this->title ?? ''));
+    $base = $this->translitUmlauts($base);
+    $base = preg_replace('/\.xlsx$/ui', '', $base);
+    $base = preg_replace('/[<>:"\/\\\\|?*\x00-\x1F]/u', '-', $base);
+    $base = preg_replace('/\s+/u', ' ', $base);
+    $base = trim($base, " .-");
+    if ($base === '') $base = 'Importer-Datei';
+    if (mb_strlen($base) > 120) $base = mb_substr($base, 0, 120);
+    $base = str_replace(' ', '_', $base);
+
+    if ($this->withTimestamp) {
+        $timestamp = date("Y-m-d_H-i");
+        $base = $timestamp . '_' . $base;
     }
 
+    return $base;
+}
     protected function wrapForExport(array $nodes): array
     {
         $clean = $this->stripInternal($nodes);
