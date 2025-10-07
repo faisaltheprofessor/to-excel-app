@@ -7,7 +7,7 @@ use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Storage;
 use Livewire\Component;
 
-class TreeEditor extends Component
+class TreeComponent extends Component
 {
     public $tree = [];
     public ?int $treeId = null;
