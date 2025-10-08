@@ -1,74 +1,138 @@
 {{-- resources/views/livewire/tree-editor.blade.php --}}
-<div class="w-1/2 m:w-3/4 mx-auto h-screen overflow-hidden flex flex-col">
-    {{-- Header: title (left) + actions (right) --}}
-    <div class="p-6 pb-2 flex flex-col gap-2 shrink-0">
-        <div class="flex items-center gap-3">
-            <flux:input
-                wire:model.blur="title"
-                placeholder="Titel des Baums"
-                class="flex-1"
-            />
+<div class="w-2/3 m:w-3/4 mx-auto h-screen overflow-hidden flex flex-col">
+    {{-- ================= Header: four accordions ================= --}}
+    <div class="p-6 pb-2 flex flex-col gap-3 shrink-0">
 
-            <div class="flex items-center gap-2">
-                <flux:modal.trigger name="excel-options">
-                    <flux:button variant="primary" color="green" icon="sheet" class="cursor-pointer" size="sm">
-                        Excel erzeugen
-                    </flux:button>
-                </flux:modal.trigger>
+        {{-- 1) Aktionen --}}
+        <flux:accordion class="rounded-lg border p-2">
+            <flux:accordion.item expanded>
+                <flux:accordion.heading>Aktionen</flux:accordion.heading>
+                <flux:accordion.content>
+                    <div class="flex flex-wrap items-center gap-2">
+                        {{-- Bearbeiten / Bearbeitung beenden --}}
+                        @if(!($editable ?? false))
+                            <flux:button wire:click="toggleEditable" icon="pencil" class="cursor-pointer" size="sm">
+                                Bearbeiten
+                            </flux:button>
+                        @else
+                            <flux:button wire:click="toggleEditable" icon="pencil"  class="cursor-pointer" size="sm">
+                                Bearbeitung beenden
+                            </flux:button>
+                        @endif
 
-                <flux:modal.trigger name="delete-structure">
-                    <flux:button variant="danger" icon="trash" class="cursor-pointer" size="sm">
-                        Löschen
-                    </flux:button>
-                </flux:modal.trigger>
-            </div>
-        </div>
+                        {{-- Abschließen --}}
+                        <flux:button wire:click="finalizeStructure" variant="primary" color="amber" icon="lock-closed" class="cursor-pointer" size="sm">
+                            Abschließen
+                        </flux:button>
 
-        <div class="flex items-center justify-between">
-            @error('title')
-                <div class="text-sm text-red-600">{{ $message }}</div>
-            @enderror
-        </div>
+                        {{-- Neue Version --}}
+                        <flux:button wire:click="createNewVersion" variant="primary" color="indigo" icon="plus" class="cursor-pointer" size="sm">
+                            Neue Version
+                        </flux:button>
+
+                        {{-- Excel erzeugen --}}
+                        <flux:modal.trigger name="excel-options">
+                            <flux:button variant="primary" color="green" icon="sheet" class="cursor-pointer" size="sm">
+                                Excel erzeugen
+                            </flux:button>
+                        </flux:modal.trigger>
+
+                        {{-- Löschen --}}
+                        <flux:modal.trigger name="delete-structure">
+                            <flux:button variant="danger" icon="trash" class="cursor-pointer" size="sm">
+                                Löschen
+                            </flux:button>
+                        </flux:modal.trigger>
+                    </div>
+                </flux:accordion.content>
+            </flux:accordion.item>
+        </flux:accordion>
+
+        {{-- 2) Titel --}}
+        <flux:accordion class="rounded-lg border p-2">
+            <flux:accordion.item expanded>
+                <flux:accordion.heading>Titel</flux:accordion.heading>
+                <flux:accordion.content>
+                    <div class="flex items-center gap-3">
+                        <flux:input
+                            id="tree-title-input"
+                            wire:model.blur="title"
+                            placeholder="Titel des Baums"
+                            class="flex-1 text-lg py-2"
+                            readonly
+                            data-title
+                        />
+                        <div class="text-xs text-zinc-500 select-none">ID: {{ $treeId }}</div>
+                    </div>
+                    <div class="flex items-center justify-between mt-1">
+                        @error('title')
+                            <div class="text-sm text-red-600">{{ $message }}</div>
+                        @enderror
+                        <span class="text-xs text-zinc-500 ml-auto">Doppelklick auf den Titel zum Bearbeiten</span>
+                    </div>
+                </flux:accordion.content>
+            </flux:accordion.item>
+        </flux:accordion>
+
+        {{-- 3) Knoten hinzufügen / Struktur erweitern --}}
+        <flux:accordion class="rounded-lg border p-2">
+            <flux:accordion.item expanded>
+                <flux:accordion.heading>Knoten Hinzufügen</flux:accordion.heading>
+                <flux:accordion.content>
+                    <form class="flex flex-col gap-2" wire:submit.prevent="addNode">
+                        <div class="flex items-center gap-4">
+                            <flux:input id="new-node-input"
+                                wire:model.live="newNodeName"
+                                placeholder="Neuer Knotenname"
+                                class="flex-1"
+                                :disabled="!$editable"
+                            />
+                            <flux:input
+                                wire:model.live="newAppName"
+                                placeholder="Name im Nscale (optional)"
+                                class="flex-1"
+                                :disabled="!$editable"
+                            />
+
+                            <label class="flex items-center gap-1 cursor-pointer select-none">
+                                <input type="checkbox" wire:model="addWithStructure" class="form-checkbox" @disabled(!$editable) />
+                                mit Ablagen
+                            </label>
+
+                            <flux:button type="submit" variant="primary" color="green" class="cursor-pointer" size="sm" :disabled="!$editable">
+                                Hinzufügen
+                            </flux:button>
+                        </div>
+
+                        <div class="flex items-start gap-4 text-sm">
+                            <div class="flex-1 text-red-600">@error('newNodeName') {{ $message }} @enderror</div>
+                            <div class="flex-1 text-red-600">@error('newAppName')  {{ $message }} @enderror</div>
+                        </div>
+                    </form>
+                </flux:accordion.content>
+            </flux:accordion.item>
+        </flux:accordion>
+
+        {{-- 4) Struktur / Baum --}}
+        <flux:accordion class="rounded-lg border p-2">
+            <flux:accordion.item expanded>
+                <flux:accordion.heading>Struktur</flux:accordion.heading>
+                <flux:accordion.content>
+                    <flux:card class="h-[48vh] overflow-auto" data-tree-root>
+                        <div class="pr-2">
+                            <ul class="space-y-1 pb-28">
+                                @foreach ($tree as $index => $node)
+                                    @include('livewire.partials.tree-node', ['node' => $node, 'path' => [$index], 'editable' => ($editable ?? false)])
+                                @endforeach
+                            </ul>
+                        </div>
+                    </flux:card>
+                </flux:accordion.content>
+            </flux:accordion.item>
+        </flux:accordion>
     </div>
-    <flux:separator class="mb-3" />
-    {{-- Add form --}}
-    <div class="px-6 pb-4 shrink-0">
-        <form class="flex flex-col gap-2" wire:submit.prevent="addNode">
-            <div class="flex items-center gap-4">
-                <flux:input id="new-node-input" wire:model.live="newNodeName" placeholder="Neuer Knotenname" class="flex-1"/>
-                <flux:input wire:model.live="newAppName"  placeholder="Name im Nscale (optional)" class="flex-1"/>
 
-                <label class="flex items-center gap-1 cursor-pointer select-none">
-                    <input type="checkbox" wire:model="addWithStructure" class="form-checkbox"/>
-                    mit Ablagen
-                </label>
-
-                <flux:button type="submit" variant="primary" color="green" class="cursor-pointer" size="sm">
-                    Hinzufügen
-                </flux:button>
-            </div>
-
-            <div class="flex items-start gap-4 text-sm">
-                <div class="flex-1 text-red-600">@error('newNodeName') {{ $message }} @enderror</div>
-                <div class="flex-1 text-red-600">@error('newAppName')  {{ $message }} @enderror</div>
-            </div>
-        </form>
-    </div>
-
-
-    {{-- Tree --}}
-    <div class="px-6 pb-24 grow min-h-0">
-        <flux:card class="h-full overflow-auto" data-tree-root>
-            <div class="pr-2">
-                <ul class="space-y-1 pb-28">
-                    @foreach ($tree as $index => $node)
-                        @include('livewire.partials.tree-node', ['node' => $node, 'path' => [$index]])
-                    @endforeach
-                </ul>
-            </div>
-        </flux:card>
-    </div>
-
+    {{-- Generation errors + JSON preview --}}
     @error('generate')
     <div class="px-6 text-sm text-red-600">{{ $message }}</div>
     @enderror
@@ -97,11 +161,46 @@
     @script
     <script>
     (function () {
+      // ===== Title: double-click to enable editing, blur/Enter to lock again =====
+      const titleEl = document.getElementById('tree-title-input');
+      if (titleEl) {
+        const ACTIVE_RING = 'ring-1 ring-blue-400 dark:ring-blue-500 rounded';
+        const addRing = () => titleEl.classList.add(...ACTIVE_RING.split(' '));
+        const removeRing = () => titleEl.classList.remove(...ACTIVE_RING.split(' '));
+
+        titleEl.addEventListener('dblclick', () => {
+          if (!titleEl.readOnly) return;
+          titleEl.readOnly = false;
+          addRing();
+          titleEl.focus();
+          titleEl.select?.();
+        });
+
+        const lockTitle = () => {
+          removeRing();
+          titleEl.readOnly = true;
+        };
+
+        titleEl.addEventListener('blur', lockTitle);
+        titleEl.addEventListener('keydown', (e) => {
+          if (e.key === 'Enter') {
+            e.preventDefault();
+            titleEl.blur(); // triggers wire:model.blur
+          } else if (e.key === 'Escape') {
+            e.preventDefault();
+            lockTitle();
+            titleEl.blur();
+          }
+        });
+      }
+
+      // ===== New node autofocus =====
       window.addEventListener('focus-newnode', () => {
         const el = document.getElementById('new-node-input');
         if (el) { el.focus(); el.select?.(); }
       });
 
+      // ===== Drag & Drop highlight helpers =====
       const RING        = 'ring-1 ring-offset-1 dark:ring-offset-0 ring-blue-400 dark:ring-blue-500 rounded';
       const RING_BEFORE = 'ring-1 ring-offset-1 dark:ring-offset-0 ring-emerald-400 dark:ring-emerald-500 rounded';
       const RING_AFTER  = 'ring-1 ring-offset-1 dark:ring-offset-0 ring-amber-400  dark:ring-amber-500  rounded';
@@ -204,9 +303,11 @@
         if (opener) opener.click();
       });
 
+      // Lock page scroll; only the tree scrolls
       document.documentElement.classList.add('overflow-hidden');
       document.body.classList.add('overflow-hidden');
 
+      // Excel ready -> trigger download
       window.addEventListener('excel-ready', event => {
           const filename = event.detail.filename;
           if (!filename) return;
@@ -220,6 +321,7 @@
           }
       });
 
+      // Open delete node modal from Livewire
       window.addEventListener('open-delete-node', () => {
           const opener = document.getElementById('open-delete-node');
           if (opener) opener.click();

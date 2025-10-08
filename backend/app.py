@@ -548,8 +548,9 @@ def apply_role_vertical_borders(ws, roles_count: int, end_row: int):
     Add vertical separators:
       - thin gray between Lesen | Schreiben | LA
       - thick after each role group and at far right
+      - thick before the very first role group (left of col 4)
       - thin gray at the left of Beschreibung (col 3)
-      - thin gray at the left of spacer (col 2)  <-- NEW
+      - thin gray at the left of spacer (col 2)
     """
     total_cols = 3 + roles_count * 3
 
@@ -568,13 +569,19 @@ def apply_role_vertical_borders(ws, roles_count: int, end_row: int):
             c3 = ws.cell(row=r, column=last)
             c3.border = Border(left=c3.border.left, right=THICK, top=c3.border.top, bottom=c3.border.bottom)
 
-    # NEW: thin border at the start of spacer column (left of col 2)
+    # NEW: thick border before first role block (left of column 4)
+    for r in range(1, end_row + 1):
+        c = ws.cell(row=r, column=4)
+        b = c.border
+        c.border = Border(left=THICK, right=b.right, top=b.top, bottom=b.bottom)
+
+    # thin border at the start of spacer column (left of col 2)
     for r in range(1, end_row + 1):
         sp = ws.cell(row=r, column=2)
         b = sp.border
         sp.border = Border(left=GRID_GRAY, right=b.right, top=b.top, bottom=b.bottom)
 
-    # Existing: thin gray border at left of Beschreibung (col 3)
+    # thin gray border at left of Beschreibung (col 3)
     for r in range(1, end_row + 1):
         desc_cell = ws.cell(row=r, column=3)
         b = desc_cell.border
@@ -723,19 +730,39 @@ def add_third_sheet(wb: Workbook, tree, roles_count:int):
     apply_gray_horizontal_grid(ws, start_row=3, end_row=end_row, total_cols=total_cols)
     apply_thick_bottom(ws, total_cols, end_row)
 
-    # --- Add thin border to the left of spacer column (col 2) ---
-    for r in range(1, end_row + 1):
-        c = ws.cell(row=r, column=2)
-        b = c.border
-        c.border = Border(left=GRID_GRAY, right=b.right, top=b.top, bottom=b.bottom)
+    # --- Benutzer area: 15 rows with grid, thick bottom border ---
+    USER_ROWS = 15
+    bottom_start = end_row + 1
+    bottom_end = end_row + USER_ROWS
 
-    # --- Add merged "Benutzers" label at the bottom ---
-    bottom_row = end_row + 1
-    ws.merge_cells(start_row=bottom_row, start_column=1, end_row=bottom_row, end_column=3)
-    label_cell = ws.cell(row=bottom_row, column=1, value="Benutzers")
+    # Merge A..C across 15 rows for the "Benutzer" instructions
+    ws.merge_cells(start_row=bottom_start, start_column=1, end_row=bottom_end, end_column=3)
+    label_text = (
+        "Benutzer\n\n"
+        "Pro Zelle genau EIN Benutzer.\n"
+        "Benutzer nur in diesem Bereich eintragen – je Rolle in den zugehörigen Feldern.\n"
+        "Eintragung spaltenweise oder zeilenweise möglich."
+    )
+    label_cell = ws.cell(row=bottom_start, column=1, value=label_text)
     label_cell.font = BLACKB
-    label_cell.alignment = LEFT
+    label_cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
     label_cell.border = BOX
+
+    # Ensure the role area cells (D..last) exist and are empty for these rows
+    for r_idx in range(bottom_start, bottom_end + 1):
+        for c_idx in range(4, total_cols + 1):
+            c = ws.cell(row=r_idx, column=c_idx)
+            if c.value is None:
+                c.value = ""
+
+    # Extend vertical borders (thin between Lesen/Schreiben/LA, thick after each role block, etc.)
+    apply_role_vertical_borders(ws, roles_count, bottom_end)
+
+    # Add thin horizontal grid lines across the Benutzer rows
+    apply_gray_horizontal_grid(ws, start_row=bottom_start, end_row=bottom_end, total_cols=total_cols)
+
+    # Thick bottom border at the end of the Benutzer block
+    apply_thick_bottom(ws, total_cols, bottom_end)
 
     ws.freeze_panes = "D3"
     autosize_columns(ws, min_w=8, max_w=60)

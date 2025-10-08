@@ -9,6 +9,8 @@ use Livewire\Component;
 
 class TreeEditor extends Component
 {
+    public bool $editable = false; // read-only by default
+
     public $tree = [];
     public ?int $treeId = null;
     public string $title = '';
@@ -75,6 +77,32 @@ class TreeEditor extends Component
         $this->sanitizeDeletionFlags($this->tree);
         $this->sanitizeEnabledFlags($this->tree);
         $this->refreshAppNames($this->tree, null, null);
+
+        $this->editable = false; // explicit
+    }
+
+    public function toggleEditable(): void
+    {
+        $this->editable = !$this->editable;
+
+        if (!$this->editable) {
+            $this->cancelInlineEdit();
+            $this->pendingFromPath = [];
+            $this->pendingToPath = [];
+            $this->pendingPosition = 'into';
+        }
+    }
+
+    public function finalizeStructure(): void
+    {
+        // lock editing (extend with your own business rules if needed)
+        $this->editable = false;
+    }
+
+    public function createNewVersion(): void
+    {
+        // placeholder – extend to actually fork/persist a new version if desired
+        $this->dispatch('toast', body: 'Neue Version erstellt (Stub).');
     }
 
     protected function persist(): void
@@ -138,6 +166,8 @@ class TreeEditor extends Component
 
     public function addNode()
     {
+        if (!$this->editable) return;
+
         $nameInput = $this->translitUmlauts(trim((string)$this->newNodeName));
 
         if ($nameInput === '') {
@@ -228,6 +258,8 @@ class TreeEditor extends Component
 
     public function promptDeleteNode($path): void
     {
+        if (!$this->editable) return;
+
         $this->confirmDeleteNodePath = is_array($path) ? $path : [];
         $this->confirmDeleteNodeName = $this->getNameAtPath($this->tree, $this->confirmDeleteNodePath) ?? '(ohne Name)';
         $this->confirmDeleteNodePathStr = $this->pathToString($this->confirmDeleteNodePath);
@@ -236,6 +268,8 @@ class TreeEditor extends Component
 
     public function confirmDeleteNode(): void
     {
+        if (!$this->editable) return;
+
         if (!empty($this->confirmDeleteNodePath)) {
             $this->removeNode($this->confirmDeleteNodePath);
         }
@@ -246,6 +280,8 @@ class TreeEditor extends Component
 
     public function removeNode($path)
     {
+        if (!$this->editable) return;
+
         $node = $this->getNodeAtPath($this->tree, $path);
         if (!$node) return;
         if ($this->isFixedName($node['name'] ?? '')) return;
@@ -276,6 +312,7 @@ class TreeEditor extends Component
 
     public function startInlineEdit($path, $field)
     {
+        if (!$this->editable) return;
         if (!in_array($field, ['name', 'appName'])) return;
 
         $node = $this->getNodeAtPath($this->tree, $path);
@@ -288,6 +325,7 @@ class TreeEditor extends Component
 
     public function saveInlineEdit($value = null)
     {
+        if (!$this->editable) return;
         if ($this->editNodePath === null || $this->editField === null) return;
 
         $val = $this->translitUmlauts(trim((string)($value ?? $this->editValue)));
@@ -396,26 +434,27 @@ class TreeEditor extends Component
         $this->dispatch('excel-ready', filename: $finalName);
     }
 
-protected function computeDownloadBasename(): string
-{
-    $raw = trim((string)$this->downloadFilename);
-    $base = $raw !== '' ? $raw : ('Importer-Datei-' . ($this->title ?? ''));
-    $base = $this->translitUmlauts($base);
-    $base = preg_replace('/\.xlsx$/ui', '', $base);
-    $base = preg_replace('/[<>:"\/\\\\|?*\x00-\x1F]/u', '-', $base);
-    $base = preg_replace('/\s+/u', ' ', $base);
-    $base = trim($base, " .-");
-    if ($base === '') $base = 'Importer-Datei';
-    if (mb_strlen($base) > 120) $base = mb_substr($base, 0, 120);
-    $base = str_replace(' ', '_', $base);
+    protected function computeDownloadBasename(): string
+    {
+        $raw = trim((string)$this->downloadFilename);
+        $base = $raw !== '' ? $raw : ('Importer-Datei-' . ($this->title ?? ''));
+        $base = $this->translitUmlauts($base);
+        $base = preg_replace('/\.xlsx$/ui', '', $base);
+        $base = preg_replace('/[<>:"\/\\\\|?*\x00-\x1F]/u', '-', $base);
+        $base = preg_replace('/\s+/u', ' ', $base);
+        $base = trim($base, " .-");
+        if ($base === '') $base = 'Importer-Datei';
+        if (mb_strlen($base) > 120) $base = mb_substr($base, 0, 120);
+        $base = str_replace(' ', '_', $base);
 
-    if ($this->withTimestamp) {
-        $timestamp = date("Y-m-d_H-i");
-        $base = $timestamp . '_' . $base;
+        if ($this->withTimestamp) {
+            $timestamp = date("Y-m-d_H-i");
+            $base = $timestamp . '_' . $base;
+        }
+
+        return $base;
     }
 
-    return $base;
-}
     protected function wrapForExport(array $nodes): array
     {
         $clean = $this->stripInternal($nodes);
@@ -454,6 +493,8 @@ protected function computeDownloadBasename(): string
 
     public function preparePendingMove($fromPath, $toPath, $position = 'into'): void
     {
+        if (!$this->editable) return;
+
         $this->pendingFromPath = is_array($fromPath) ? $fromPath : [];
         $this->pendingToPath = is_array($toPath) ? $toPath : [];
         $this->pendingPosition = in_array($position, ['into', 'before', 'after'], true) ? $position : 'into';
@@ -492,6 +533,7 @@ protected function computeDownloadBasename(): string
 
     public function confirmPendingMove(): void
     {
+        if (!$this->editable) return;
         if (empty($this->pendingFromPath) || empty($this->pendingToPath)) return;
 
         $this->moveNode($this->pendingFromPath, $this->pendingToPath, $this->pendingPosition);
@@ -511,6 +553,7 @@ protected function computeDownloadBasename(): string
 
     public function moveNode($fromPath, $toPath, $position = 'into'): void
     {
+        if (!$this->editable) return;
         if (!$this->pathExists($this->tree, $fromPath) || !$this->pathExists($this->tree, $toPath)) return;
         if ($fromPath === $toPath || $this->isAncestorPath($fromPath, $toPath)) return;
 
@@ -545,79 +588,10 @@ protected function computeDownloadBasename(): string
         $this->selectedNodePath = $newPath;
     }
 
-    protected function pathsShareParent(array $a, array $b): bool
-    {
-        if (count($a) !== count($b)) return false;
-        return $this->isAncestorPath(array_slice($a, 0, -1), $b) && count($a) - 1 === count(array_slice($b, 0, -1));
-    }
-
-    protected function isAncestorPath(array $a, array $b): bool
-    {
-        if (count($a) >= count($b)) return false;
-        for ($i = 0; $i < count($a); $i++) if ($a[$i] !== $b[$i]) return false;
-        return true;
-    }
-
-    protected function unwrapIfWrapped(array $data): array
-    {
-        if (
-            count($data) === 1 &&
-            isset($data[0]['name']) && $data[0]['name'] === '.PANKOW' &&
-            !empty($data[0]['children']) &&
-            isset($data[0]['children'][0]['name']) && $data[0]['children'][0]['name'] === 'ba' &&
-            !empty($data[0]['children'][0]['children']) &&
-            isset($data[0]['children'][0]['children'][0]['name']) &&
-            $data[0]['children'][0]['children'][0]['name'] === 'DigitaleAkte-203'
-        ) {
-            return $data[0]['children'][0]['children'][0]['children'] ?? [];
-        }
-        return $data;
-    }
-
-    protected function isFixedName(?string $name): bool
-    {
-        return in_array((string)$name, $this->fixedNames, true);
-    }
-
-    protected function sanitizeDeletionFlags(array &$nodes): void
-    {
-        foreach ($nodes as &$n) {
-            $n['deletable'] = !$this->isFixedName($n['name'] ?? '');
-            if (!empty($n['children']) && is_array($n['children'])) {
-                $this->sanitizeDeletionFlags($n['children']);
-            }
-        }
-    }
-
-    protected function sanitizeEnabledFlags(array &$nodes, bool $underAblgOE = false): void
-    {
-        foreach ($nodes as &$n) {
-            $name = (string)($n['name'] ?? '');
-            $hasChildren = !empty($n['children']) && is_array($n['children']);
-            $isAblg = ($name === 'AblgOE');
-
-            $eligible = $underAblgOE || in_array($name, ['Ltg', 'Allg'], true);
-
-            if ($eligible) {
-                if (!array_key_exists('enabled', $n)) {
-                    $n['enabled'] = true;
-                } else {
-                    $n['enabled'] = (bool)$n['enabled'];
-                }
-            } else {
-                if (array_key_exists('enabled', $n)) {
-                    unset($n['enabled']);
-                }
-            }
-
-            if ($hasChildren) {
-                $this->sanitizeEnabledFlags($n['children'], $underAblgOE || $isAblg);
-            }
-        }
-    }
-
     public function toggleEnabled($path, $checked): void
     {
+        if (!$this->editable) return;
+
         $val = is_bool($checked)
             ? $checked
             : (in_array($checked, [1, '1', 'true', 'TRUE', 'on'], true));
@@ -871,6 +845,8 @@ protected function computeDownloadBasename(): string
         return view('livewire.tree-editor');
     }
 
+    /** ==== Helpers restored ============================================ */
+
     protected function invalidNameReason(string $name): ?string
     {
         if (mb_strlen($name) > 255) return 'Name darf höchstens 255 Zeichen lang sein.';
@@ -914,18 +890,12 @@ protected function computeDownloadBasename(): string
         }
 
         switch ($childName) {
-            case 'Ltg':
-                return 'Ltg_' . $effectiveParent;
-            case 'Allg':
-                return 'Allg_' . $effectiveParent;
-            case 'AblgOE':
-                return 'Ab_' . $effectiveParent;
-            case 'SB':
-                return 'Sb_' . $effectiveParent;
-            case 'PoEing':
-                return 'Pe_' . $effectiveParent;
-            default:
-                return $effectiveParent . '_' . $this->abbr($childName);
+            case 'Ltg':   return 'Ltg_' . $effectiveParent;
+            case 'Allg':  return 'Allg_' . $effectiveParent;
+            case 'AblgOE':return 'Ab_'  . $effectiveParent;
+            case 'SB':    return 'Sb_'  . $effectiveParent;
+            case 'PoEing':return 'Pe_'  . $effectiveParent;
+            default:      return $effectiveParent . '_' . $this->abbr($childName);
         }
     }
 
@@ -984,5 +954,79 @@ protected function computeDownloadBasename(): string
     protected function normalizeSbPrefix(string $s): string
     {
         return preg_replace('/^SB/u', 'Sb', $s);
+    }
+
+    protected function unwrapIfWrapped(array $data): array
+    {
+        if (
+            count($data) === 1 &&
+            isset($data[0]['name']) && $data[0]['name'] === '.PANKOW' &&
+            !empty($data[0]['children']) &&
+            isset($data[0]['children'][0]['name']) && $data[0]['children'][0]['name'] === 'ba' &&
+            !empty($data[0]['children'][0]['children']) &&
+            isset($data[0]['children'][0]['children'][0]['name']) &&
+            $data[0]['children'][0]['children'][0]['name'] === 'DigitaleAkte-203'
+        ) {
+            return $data[0]['children'][0]['children'][0]['children'] ?? [];
+        }
+        return $data;
+    }
+
+    protected function pathsShareParent(array $a, array $b): bool
+    {
+        if (count($a) !== count($b)) return false;
+        return $this->isAncestorPath(array_slice($a, 0, -1), $b)
+            && count($a) - 1 === count(array_slice($b, 0, -1));
+    }
+
+    protected function isAncestorPath(array $a, array $b): bool
+    {
+        if (count($a) >= count($b)) return false;
+        for ($i = 0; $i < count($a); $i++) {
+            if ($a[$i] !== $b[$i]) return false;
+        }
+        return true;
+    }
+
+    protected function sanitizeDeletionFlags(array &$nodes): void
+    {
+        foreach ($nodes as &$n) {
+            $n['deletable'] = !$this->isFixedName($n['name'] ?? '');
+            if (!empty($n['children']) && is_array($n['children'])) {
+                $this->sanitizeDeletionFlags($n['children']);
+            }
+        }
+    }
+
+    protected function sanitizeEnabledFlags(array &$nodes, bool $underAblgOE = false): void
+    {
+        foreach ($nodes as &$n) {
+            $name = (string)($n['name'] ?? '');
+            $hasChildren = !empty($n['children']) && is_array($n['children']);
+            $isAblg = ($name === 'AblgOE');
+
+            $eligible = $underAblgOE || in_array($name, ['Ltg', 'Allg'], true);
+
+            if ($eligible) {
+                if (!array_key_exists('enabled', $n)) {
+                    $n['enabled'] = true;
+                } else {
+                    $n['enabled'] = (bool)$n['enabled'];
+                }
+            } else {
+                if (array_key_exists('enabled', $n)) {
+                    unset($n['enabled']);
+                }
+            }
+
+            if ($hasChildren) {
+                $this->sanitizeEnabledFlags($n['children'], $underAblgOE || $isAblg);
+            }
+        }
+    }
+
+    protected function isFixedName(?string $name): bool
+    {
+        return in_array((string)$name, $this->fixedNames, true);
     }
 }
