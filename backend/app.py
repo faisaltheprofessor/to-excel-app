@@ -21,7 +21,7 @@ DATA_START_ROW = 4
 SKIP_PARENTS = 3
 
 ORG_NAME = "BA-PANKOW"
-ADMIN_ACCOUNT = "T1_PL_extMA_DigitaleAkte_Fach_Admin_Role"
+ADMIN_ACCOUNT = "T1_PL_extMA_DigitaleAkte_Fach_Admin_Role@admin"
 
 # ===== Styles =====
 ORANGE = PatternFill("solid", fgColor="EA5B2B")
@@ -470,7 +470,7 @@ def add_second_sheet(wb: Workbook, tree):
 
     for pe in all_poeings:
         parent_app = pe["path"][-2] if len(pe["path"]) >= 2 else ""
-        label  = f"PoKorb_{parent_app}" if parent_app else "PoKorb"
+        label  = f"PoKorb_Pe_{parent_app}" if parent_app else "PoKorb"
         parent = f"Pe_{parent_app}"     if parent_app else "Pe"
 
         values = [
