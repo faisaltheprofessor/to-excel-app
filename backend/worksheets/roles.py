@@ -1,8 +1,10 @@
 from openpyxl import Workbook
-from openpyxl.styles import Border
+from openpyxl.styles import Border, PatternFill
 from config import SHEET3_NAME, SKIP_PARENTS, ROLE_HEADER_TEXT
-from styles import TITLE_GRAY, PALEGR, GRID_GRAY, THICK, THICK_BOTTOM, BOX, LEFT, BLACKB
+from styles import BLUE, PALEGR, GRID_GRAY, THICK, THICK_BOTTOM, BOX, LEFT, BLACKB, GRAYB, WHITEB
 from utils import strip_prefix_levels, autosize_columns, gray_out_row_full
+
+DISABLED_BLUE = PatternFill("solid", fgColor="9FB7D9")
 
 
 def fill_row(ws, row, start_col, end_col, fill):
@@ -30,13 +32,13 @@ def roles_sheet_header(ws, roles_count: int):
         ws.cell(row=2, column=col).font = BLACKB
         ws.cell(row=2, column=col).alignment = LEFT
 
-        ws.cell(row=2, column=col+1).value = "Schreiben"
-        ws.cell(row=2, column=col+1).font = BLACKB
-        ws.cell(row=2, column=col+1).alignment = LEFT
+        ws.cell(row=2, column=col + 1).value = "Schreiben"
+        ws.cell(row=2, column=col + 1).font = BLACKB
+        ws.cell(row=2, column=col + 1).alignment = LEFT
 
-        ws.cell(row=2, column=col+2).value = "LA"
-        ws.cell(row=2, column=col+2).font = BLACKB
-        ws.cell(row=2, column=col+2).alignment = LEFT
+        ws.cell(row=2, column=col + 2).value = "LA"
+        ws.cell(row=2, column=col + 2).font = BLACKB
+        ws.cell(row=2, column=col + 2).alignment = LEFT
 
         col += 3
 
@@ -153,7 +155,11 @@ def get_desc(node):
     return (node.get("description") or "").strip()
 
 
-def write_roles_for_node(ws, node, row_idx, roles_count):
+def is_ab_block(label: str):
+    return label.startswith("Ab_")
+
+
+def write_roles_for_node(ws, node, row_idx, roles_count, in_ab_tree=False):
     total_cols = 3 + roles_count * 3
     label = get_label(node)
     if not label:
@@ -161,17 +167,33 @@ def write_roles_for_node(ws, node, row_idx, roles_count):
 
     children = node.get("children") or []
     is_parent = bool(children)
+    disabled = node.get("enabled") is False
 
-    fill = TITLE_GRAY if is_parent else PALEGR
-    write_role_row(ws, row_idx, label, get_desc(node), total_cols, fill)
+    if is_ab_block(label) or (in_ab_tree and is_parent):
+        ws.cell(row=row_idx, column=1).value = ""
+        row_idx += 1
 
-    if node.get("enabled") is False:
-        gray_out_row_full(ws, row_idx, total_cols)
+    current_row = row_idx
 
-    row_idx += 1
+    if is_parent:
+        fill = DISABLED_BLUE if disabled else BLUE
+    else:
+        fill = PALEGR
 
+    write_role_row(ws, current_row, label, get_desc(node), total_cols, fill)
+
+    if is_parent:
+        for c in range(1, total_cols + 1):
+            ws.cell(row=current_row, column=c).font = WHITEB if not disabled else GRAYB
+    else:
+        if disabled:
+            gray_out_row_full(ws, current_row, total_cols)
+
+    row_idx = current_row + 1
+
+    next_in_ab_tree = in_ab_tree or is_ab_block(label)
     for ch in children:
-        row_idx = write_roles_for_node(ws, ch, row_idx, roles_count)
+        row_idx = write_roles_for_node(ws, ch, row_idx, roles_count, next_in_ab_tree)
 
     if is_parent:
         ws.cell(row=row_idx, column=1).value = ""
@@ -218,7 +240,7 @@ def add_third_sheet(wb: Workbook, tree, roles_count: int):
 
     r = 3
     for top in working_nodes:
-        r = write_roles_for_node(ws, top, r, roles_count)
+        r = write_roles_for_node(ws, top, r, roles_count, False)
 
     total_cols = 3 + roles_count * 3
     compress_blank_rows(ws, 3, total_cols)

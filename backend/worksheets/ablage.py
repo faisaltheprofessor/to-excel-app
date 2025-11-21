@@ -1,4 +1,5 @@
 from openpyxl import Workbook
+from openpyxl.styles import PatternFill
 
 from config import (
     SHEET2_NAME,
@@ -8,10 +9,27 @@ from config import (
     PREFIX,
 )
 from styles import (
-    PALEGR, YELLOW, BLACKB, BLACK,
-    LEFT, BOX2, THICK_TOP, THICK_BOTTOM,
+    PALEGR,
+    BLACKB,
+    BLACK,
+    LEFT,
+    BOX2,
+    BLUE,
+    WHITEB,
+    GRAYB,
+    THICK_TOP,
+    THICK_BOTTOM,
 )
+
 from utils import strip_prefix_levels, gray_out_row, autosize_columns, norm_token
+
+
+USE_THICK_TOP = False
+USE_THICK_BOTTOM = False
+USE_GROUP_BOTTOM = False
+USE_BLANK_BEFORE_PARENT = True
+
+DISABLED_BLUE = PatternFill("solid", fgColor="9FB7D9")
 
 
 def allowed_types_for(label, typ):
@@ -38,8 +56,9 @@ def build_group_key_from_names(path_names):
 
 
 def set_row_top_thick(ws, row, col_start=1, col_end=11):
+    if not USE_THICK_TOP:
+        return
     from openpyxl.styles import Border, Side
-
     for c in range(col_start, col_end + 1):
         cell = ws.cell(row=row, column=c)
         b = cell.border
@@ -52,8 +71,9 @@ def set_row_top_thick(ws, row, col_start=1, col_end=11):
 
 
 def set_row_bottom_thick(ws, row, col_start=1, col_end=11):
+    if not USE_THICK_BOTTOM:
+        return
     from openpyxl.styles import Border, Side
-
     for c in range(col_start, col_end + 1):
         cell = ws.cell(row=row, column=c)
         b = cell.border
@@ -66,7 +86,8 @@ def set_row_bottom_thick(ws, row, col_start=1, col_end=11):
 
 
 def set_group_bottom_thick(ws, row_last, col_start=1, col_end=11):
-    set_row_bottom_thick(ws, row_last, col_start, col_end)
+    if USE_GROUP_BOTTOM:
+        set_row_bottom_thick(ws, row_last, col_start, col_end)
 
 
 def make_addr(group_key: str, suffix: str = "") -> str:
@@ -84,10 +105,17 @@ def write_group_recursive(ws, node, r, path_names, path_apps, poeings):
     appn = (node.get("appName") or name).strip()
     kids = node.get("children") or []
     desc = (node.get("description") or "").strip()
-
     label = appn if appn else (name if name else "(unnamed)")
     is_parent = bool(kids)
+    disabled = node.get("enabled") is False
     parent_raw = path_apps[-1] if path_apps else ""
+
+    if (
+        USE_BLANK_BEFORE_PARENT
+        and is_parent
+        and (path_names or path_apps)
+    ):
+        r += 1
 
     display_a = label
     parent_display = parent_raw
@@ -95,7 +123,7 @@ def write_group_recursive(ws, node, r, path_names, path_apps, poeings):
 
     full_names_path = path_names + [name]
     perm_key = build_group_key_from_names(full_names_path)
-    ancestor_keys = [build_group_key_from_names(full_names_path[:i]) for i in range(1, len(full_names_path)+1)]
+    ancestor_keys = [build_group_key_from_names(full_names_path[:i]) for i in range(1, len(full_names_path) + 1)]
 
     values = [
         display_a,
@@ -105,37 +133,45 @@ def write_group_recursive(ws, node, r, path_names, path_apps, poeings):
         break_inheritance_from_node(node, desc),
         allowed_types_for(label, "Posteingang" if is_poe_label(label) else typ),
     ]
+
     for j, v in enumerate(values, start=1):
         c = ws.cell(row=r, column=j, value=v)
         c.alignment = LEFT
         c.border = BOX2
-    ws.cell(row=r, column=1).fill = YELLOW
 
     g_list = [make_addr(perm_key, "RO")]
     h_list = [make_addr(perm_key, "")]
     i_list = [make_addr(perm_key, "FA")]
-    j_list = [make_addr(k, "LA") for k in ancestor_keys]
+    j_list_vals = [make_addr(k, "LA") for k in ancestor_keys]
     k_list = [make_addr(perm_key, "AA")]
 
-    for offset, items in enumerate([g_list, h_list, i_list, j_list, k_list], start=7):
+    for offset, items in enumerate([g_list, h_list, i_list, j_list_vals, k_list], start=7):
         cell_val = ";".join(items) + f";{ADMIN_ACCOUNT}"
         c = ws.cell(row=r, column=offset, value=cell_val)
         c.alignment = LEFT
         c.border = BOX2
 
-    ws.cell(row=r, column=1).font = (BLACKB if is_parent else BLACK)
-    for j in range(2, 12):
-        ws.cell(row=r, column=j).font = BLACK
+    if is_parent:
+        fill = DISABLED_BLUE if disabled else BLUE
+        font = GRAYB if disabled else WHITEB
+    else:
+        fill = PALEGR
+        font = GRAYB if disabled else BLACK
+
+    for col in range(1, 12):
+        ws.cell(row=r, column=col).fill = fill
+        ws.cell(row=r, column=col).font = font
+
+    if not is_parent and disabled:
+        gray_out_row(ws, r, 1, 11)
+
     if is_parent:
         set_row_top_thick(ws, r, 1, 11)
-
-    if node.get("enabled") is False:
-        gray_out_row(ws, r, 1, 11)
 
     cur = r
 
     if is_poe_label(label):
-        poeings.append({"path": list(path_apps), "disabled": (node.get("enabled") is False)})
+        poeings.append({"path": list(path_apps), "disabled": disabled})
 
     for child in kids:
         cur += 1
@@ -145,7 +181,7 @@ def write_group_recursive(ws, node, r, path_names, path_apps, poeings):
             cur,
             path_names=full_names_path,
             path_apps=path_apps + [label],
-            poeings=poeings
+            poeings=poeings,
         )
 
     if is_parent:
@@ -164,7 +200,11 @@ def add_second_sheet(wb: Workbook, tree):
         "Art",
         "Vererbung aus übergeordnetem Element unterbrechen",
         "Erlaubte Aktentypen",
-        "Lesen", "Schreiben", "Administrieren", "Löschadministration", "Ablageadministration"
+        "Lesen",
+        "Schreiben",
+        "Administrieren",
+        "Löschadministration",
+        "Ablageadministration",
     ]
     for col_idx, h in enumerate(headers, start=1):
         c = ws.cell(row=1, column=col_idx, value=h)
@@ -181,14 +221,14 @@ def add_second_sheet(wb: Workbook, tree):
     all_poeings = []
 
     for top in working_nodes:
-        r, poe = write_group_recursive(ws, top, r, path_names=[], path_apps=[], poeings=[])
+        r, poe = write_group_recursive(ws, top, r, [], [], [])
         all_poeings.extend(poe)
         r += 1
 
     for pe in all_poeings:
         parent_app = pe["path"][-2] if len(pe["path"]) >= 2 else ""
-        label  = f"PoKorb_Pe_{parent_app}" if parent_app else "PoKorb"
-        parent = f"Pe_{parent_app}"     if parent_app else "Pe"
+        label = f"PoKorb_Pe_{parent_app}" if parent_app else "PoKorb"
+        parent = f"Pe_{parent_app}" if parent_app else "Pe"
 
         values = [
             label,
@@ -198,20 +238,22 @@ def add_second_sheet(wb: Workbook, tree):
             "",
             "",
         ]
+
         for j, v in enumerate(values, start=1):
             c = ws.cell(row=r, column=j, value=v)
             c.alignment = LEFT
             c.border = BOX2
-        ws.cell(row=r, column=1).fill = YELLOW
-        for j in range(7, 12):
-            c = ws.cell(row=r, column=j, value="")
-            c.alignment = LEFT
-            c.border = BOX2
-        ws.cell(row=r, column=1).font = BLACK
-        for j in range(2, 12):
-            ws.cell(row=r, column=j).font = BLACK
 
-        if pe.get("disabled"):
+        disabled = pe.get("disabled")
+        fill = DISABLED_BLUE if disabled else PALEGR
+        font = GRAYB if disabled else BLACK
+
+        for col in range(1, 12):
+            ws.cell(row=r, column=col).fill = fill
+            ws.cell(row=r, column=col).font = font
+            ws.cell(row=r, column=col).border = BOX2
+
+        if disabled:
             gray_out_row(ws, r, 1, 11)
 
         r += 1
