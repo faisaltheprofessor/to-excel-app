@@ -1,3 +1,4 @@
+{{-- resources/views/livewire/partials/tree-node.blade.php --}}
 @php
     $node = is_array($node) ? $node : [];
     $nodeKey = implode('-', $path);
@@ -8,6 +9,7 @@
 
     $level = count($path);
 
+    // Palette shared with minimap
     $palette = [
         ['border-red-300',    'text-red-500 dark:text-red-300',       'bg-red-100',    'dark:bg-red-900'],
         ['border-orange-300', 'text-orange-500 dark:text-orange-300', 'bg-orange-100', 'dark:bg-orange-900'],
@@ -28,6 +30,8 @@
 
     $enabled     = array_key_exists('enabled', $node) ? (bool) $node['enabled'] : true;
     $isDisabled  = array_key_exists('enabled', $node) ? !$node['enabled'] : false;
+
+    $editable    = $editable ?? false;
 @endphp
 
 <li
@@ -36,10 +40,12 @@
     data-tree-node
     data-path='@json($path)'
     data-name='{{ $node['name'] ?? '' }}'
-    draggable="true"
+    draggable="{{ $editable ? 'true' : 'false' }}"
 >
+    {{-- Dropzone before node --}}
     <div data-dropzone data-pos="before" class="h-2 -mt-1"></div>
 
+    {{-- Wide invisible button on left border to select node --}}
     <button
         type="button"
         class="absolute left-0 top-0 bottom-0 w-4 cursor-pointer opacity-0 hover:opacity-20 focus:opacity-20 z-40"
@@ -51,7 +57,8 @@
     <div
         x-data="{ localDisabled: @js($isDisabled), path: @js($path) }"
         :class="localDisabled ? 'opacity-80 bg-gray-200 dark:bg-gray-700' : ''"
-        class="relative flex items-center gap-3 cursor-move
+        class="relative flex items-center gap-3
+               {{ $editable ? 'cursor-move' : 'cursor-default' }}
                {{ $isSelected ? $bgSelected.' font-semibold' : 'hover:bg-gray-200 dark:hover:bg-gray-600' }}
                rounded px-2 py-1"
         data-dropzone
@@ -59,8 +66,10 @@
         wire:click.prevent="selectNode({{ json_encode($path) }})"
         :aria-disabled="localDisabled ? 'true' : 'false'"
     >
+        {{-- Folder icon, colored by level --}}
         <flux:icon.folder class="w-5 h-5 {{ $iconClass }}"/>
 
+        {{-- Name (inline editable) --}}
         <div class="flex items-center gap-1">
             @if ($isEditingName)
                 <div class="relative">
@@ -93,6 +102,7 @@
             @endif
         </div>
 
+        {{-- Nscale / appName (inline editable) --}}
         <div class="flex items-center gap-1">
             <span class="text-xs text-gray-500 dark:text-gray-100">Nscale:</span>
             @if ($isEditingApp)
@@ -126,21 +136,32 @@
             @endif
         </div>
 
-        <div class="ml-auto flex items-center gap-3">
+        {{-- Right-side controls (enabled toggle + delete) --}}
+ <div class="ml-auto flex items-center gap-3">
             @if (array_key_exists('enabled', $node))
-                <div class="flex items-center gap-1">
+                <div class="flex items-center gap-1 {{ $editable ? '' : 'opacity-60 cursor-not-allowed' }}">
                     <input
                         type="checkbox"
-                        class="form-checkbox cursor-pointer"
-                        x-model="localDisabled"
-                        @click.stop
-                        @change.stop="$nextTick(() => $wire.toggleEnabled(path, localDisabled ? false : true))"
+                        class="form-checkbox {{ $editable ? 'cursor-pointer' : 'cursor-not-allowed' }}"
+                        {{-- Always reflect disabled state visually --}}
+                        :checked="localDisabled"
+                        @if($editable)
+                            {{-- Only allow interaction in edit mode --}}
+                            x-model="localDisabled"
+                            @click.stop
+                            @change.stop="$nextTick(() => $wire.toggleEnabled(path, localDisabled ? false : true))"
+                        @else
+                            @click.stop
+                        @endif
+                        @disabled(!$editable)
                     />
                     <button
                         type="button"
-                        class="text-xs text-gray-600 dark:text-gray-300 cursor-pointer select-none"
+                        class="text-xs text-gray-600 dark:text-gray-300 select-none {{ $editable ? 'cursor-pointer' : 'cursor-not-allowed' }}"
                         title="Ausblenden / Einblenden"
-                        @click.stop="localDisabled = !localDisabled; $nextTick(() => $wire.toggleEnabled(path, localDisabled ? false : true))"
+                        @if($editable)
+                            @click.stop="localDisabled = !localDisabled; $nextTick(() => $wire.toggleEnabled(path, localDisabled ? false : true))"
+                        @endif
                     >
                         ausgeblendet
                     </button>
@@ -160,16 +181,19 @@
         </div>
     </div>
 
+    {{-- Children --}}
     @if (!empty($node['children']) && is_array($node['children']))
         <ul class="pl-6 mt-1 space-y-1">
             @foreach ($node['children'] as $childIndex => $childNode)
                 @include('livewire.partials.tree-node', [
-                    'node' => $childNode,
-                    'path' => array_merge($path, [$childIndex])
+                    'node'     => $childNode,
+                    'path'     => array_merge($path, [$childIndex]),
+                    'editable' => $editable,
                 ])
             @endforeach
         </ul>
     @endif
 
+    {{-- Dropzone after node --}}
     <div data-dropzone data-pos="after" class="h-2 mb-3"></div>
 </li>

@@ -308,7 +308,15 @@ class TreeEditor extends Component
         $this->persist();
     }
 
-    public function selectNode($path) { $this->selectedNodePath = $this->pathExists($this->tree, $path) ? $path : null; }
+public function selectNode($path)
+{
+    $this->selectedNodePath = $this->pathExists($this->tree, $path) ? $path : null;
+
+    if ($this->selectedNodePath !== null) {
+        $this->dispatch('node-selected', path: $this->selectedNodePath);
+    }
+}
+
 
     public function startInlineEdit($path, $field)
     {
