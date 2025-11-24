@@ -31,6 +31,9 @@ USE_BLANK_BEFORE_PARENT = True
 
 DISABLED_BLUE = PatternFill("solid", fgColor="9FB7D9")
 
+# Distinct fill for PoKorb rows so they are visually separated
+POKORB_FILL = PatternFill("solid", fgColor="FFF2CC")
+
 
 def allowed_types_for(label, typ):
     lab = (label or "").lower()
@@ -225,6 +228,9 @@ def add_second_sheet(wb: Workbook, tree):
         all_poeings.extend(poe)
         r += 1
 
+    # --- PoKorb rows: distinct background + medium top border at start of list ---
+    first_pokorb_row = None
+
     for pe in all_poeings:
         parent_app = pe["path"][-2] if len(pe["path"]) >= 2 else ""
         label = f"PoKorb_Pe_{parent_app}" if parent_app else "PoKorb"
@@ -245,13 +251,29 @@ def add_second_sheet(wb: Workbook, tree):
             c.border = BOX2
 
         disabled = pe.get("disabled")
-        fill = DISABLED_BLUE if disabled else PALEGR
+        fill = DISABLED_BLUE if disabled else POKORB_FILL
         font = GRAYB if disabled else BLACK
 
         for col in range(1, 12):
-            ws.cell(row=r, column=col).fill = fill
-            ws.cell(row=r, column=col).font = font
-            ws.cell(row=r, column=col).border = BOX2
+            cell = ws.cell(row=r, column=col)
+            cell.fill = fill
+            cell.font = font
+            cell.border = BOX2
+
+        # Mark the first PoKorb row with a medium top border to start the list
+        if first_pokorb_row is None:
+            first_pokorb_row = r
+            from openpyxl.styles import Border, Side
+            thin_top = Side(style="medium", color="000000")
+            for col in range(1, 12):
+                cell = ws.cell(row=first_pokorb_row, column=col)
+                b = cell.border
+                cell.border = Border(
+                    left=b.left,
+                    right=b.right,
+                    top=thin_top,
+                    bottom=b.bottom,
+                )
 
         if disabled:
             gray_out_row(ws, r, 1, 11)

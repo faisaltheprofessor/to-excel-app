@@ -26,16 +26,6 @@
                                     </flux:button>
                                 @endif
 
-                                {{-- Abschließen --}}
-                                <flux:button wire:click="finalizeStructure" variant="primary" color="amber" icon="lock-closed" class="cursor-pointer" size="sm">
-                                    Abschließen
-                                </flux:button>
-
-                                {{-- Neue Version --}}
-                                <flux:button wire:click="createNewVersion" variant="primary" color="indigo" icon="plus" class="cursor-pointer" size="sm">
-                                    Neue Version
-                                </flux:button>
-
                                 {{-- Excel erzeugen --}}
                                 <flux:modal.trigger name="excel-options">
                                     <flux:button variant="primary" color="green" icon="sheet" class="cursor-pointer" size="sm">
@@ -482,6 +472,23 @@
           }
       });
     })();
+
+    document.addEventListener('livewire:init', () => {
+        Livewire.on('excel-ready', (payload) => {
+            const filename = payload.filename;
+            if (!filename) {
+                console.warn('excel-ready event without filename', payload);
+                return;
+            }
+
+            // Build the correct download URL on the client
+            const base = @json(route('download-excel', ['filename' => '___FILENAME___']));
+            const url  = base.replace('___FILENAME___', encodeURIComponent(filename));
+
+            window.location.href = url; // same tab download
+        });
+    });
+
     </script>
     @endscript
 </div>

@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\TreeQuickExcelExportController;
 use App\Livewire\FeedbackIndex;
 use App\Livewire\FeedbackShow;
 use App\Livewire\FeedbackTrash;
@@ -21,30 +22,35 @@ Route::middleware(['auth'])->group(function () {
     Route::get('/feedback/kanban', \App\Livewire\FeedbackKanban::class)
         ->name('feedback.kanban');
 
-
-    // Excel download
     Route::get('/download-excel/{filename}', function ($filename) {
-        $path = 'temp/' . $filename;
-        if (!Storage::exists($path)) {
-            abort(404);
+        $relativePath = 'temp/' . $filename;
+
+        if (! Storage::exists($relativePath)) {
+            abort(404, 'Datei nicht gefunden');
         }
+
+        $absolutePath = Storage::path($relativePath);
+
         return response()
-            ->download(storage_path('app/private/' . $path))
+            ->download($absolutePath)
             ->deleteFileAfterSend(true);
     })->name('download-excel');
 
+
     // Feedback
-    Route::get('/feedback', FeedbackIndex::class)->name('feedback.index');
+    Route::get('/feedback',       FeedbackIndex::class)->name('feedback.index');
     Route::get('/feedback/trash', FeedbackTrash::class)->name('feedback.trash');
     Route::get('/feedback/{feedback}', FeedbackShow::class)->name('feedback.show');
 
-    // Private file download for feedback attachments (index = array index)
     Route::get('/feedback/{feedback}/file/{index}', function (\App\Models\Feedback $feedback, int $index) {
         $paths = $feedback->attachments ?? [];
         abort_unless(isset($paths[$index]), 404);
-        // Add authorization here if needed
+
         return response()->file(storage_path('app/private/' . $paths[$index]));
     })->name('feedback.file');
+
+    Route::get('/importer/{tree}/export', TreeQuickExcelExportController::class)
+        ->name('importer.export');
 
     // Settings (Volt)
     Route::redirect('settings', 'settings/profile');

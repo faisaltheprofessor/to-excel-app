@@ -69,7 +69,7 @@ class TreeEditor extends Component
     public function mount(TreeModel $tree)
     {
         $this->treeId = $tree->id;
-        $this->title = $this->normalizeTitle((string)$tree->title);
+        $this->title = $this->normalizeTitle((string) $tree->title);
 
         $data = $tree->data ?? [];
         $this->tree = $this->unwrapIfWrapped($data);
@@ -78,14 +78,14 @@ class TreeEditor extends Component
         $this->sanitizeEnabledFlags($this->tree);
         $this->refreshAppNames($this->tree, null, null);
 
-        $this->editable = false; // explicit
+        $this->editable = false;
     }
 
     public function toggleEditable(): void
     {
-        $this->editable = !$this->editable;
+        $this->editable = ! $this->editable;
 
-        if (!$this->editable) {
+        if (! $this->editable) {
             $this->cancelInlineEdit();
             $this->pendingFromPath = [];
             $this->pendingToPath = [];
@@ -95,25 +95,28 @@ class TreeEditor extends Component
 
     public function finalizeStructure(): void
     {
-        // lock editing (extend with your own business rules if needed)
         $this->editable = false;
     }
 
     public function createNewVersion(): void
     {
-        // placeholder – extend to actually fork/persist a new version if desired
         $this->dispatch('toast', body: 'Neue Version erstellt (Stub).');
     }
 
     protected function persist(): void
     {
-        if (!$this->treeId) return;
+        if (! $this->treeId) {
+            return;
+        }
+
         $model = TreeModel::find($this->treeId);
-        if (!$model) return;
+        if (! $model) {
+            return;
+        }
 
         $model->update([
             'title' => $this->title !== '' ? $this->title : $model->title,
-            'data' => $this->tree,
+            'data'  => $this->tree,
         ]);
 
         $this->dispatch('autosaved');
@@ -122,7 +125,7 @@ class TreeEditor extends Component
     public function updatedTitle(): void
     {
         $candidate = $this->translitUmlauts(
-            $this->normalizeTitle((string)$this->title)
+            $this->normalizeTitle((string) $this->title)
         );
 
         if ($candidate === '') {
@@ -149,26 +152,51 @@ class TreeEditor extends Component
         $this->persist();
     }
 
-    public function updatedNewNodeName(): void { $this->resetValidation(); }
-    public function updatedNewAppName(): void  { $this->resetValidation(); }
-    public function updatedEditValue(): void   { $this->resetValidation(); }
+    public function updatedNewNodeName(): void
+    {
+        $this->resetValidation();
+    }
 
-    public function updatedSheetGE()      { $this->resetErrorBag('generate'); }
-    public function updatedSheetAblage()  { $this->resetErrorBag('generate'); }
+    public function updatedNewAppName(): void
+    {
+        $this->resetValidation();
+    }
+
+    public function updatedEditValue(): void
+    {
+        $this->resetValidation();
+    }
+
+    public function updatedSheetGE()
+    {
+        $this->resetErrorBag('generate');
+    }
+
+    public function updatedSheetAblage()
+    {
+        $this->resetErrorBag('generate');
+    }
+
     public function updatedSheetRoles($value)
     {
         $this->resetErrorBag('generate');
-        if (!$value) {
+        if (! $value) {
             $this->rolesPlaceholderCount = 10;
         }
     }
-    public function updatedRolesPlaceholderCount() { $this->resetErrorBag('generate'); }
+
+    public function updatedRolesPlaceholderCount()
+    {
+        $this->resetErrorBag('generate');
+    }
 
     public function addNode()
     {
-        if (!$this->editable) return;
+        if (! $this->editable) {
+            return;
+        }
 
-        $nameInput = $this->translitUmlauts(trim((string)$this->newNodeName));
+        $nameInput = $this->translitUmlauts(trim((string) $this->newNodeName));
 
         if ($nameInput === '') {
             $this->addError('newNodeName', 'Name darf nicht leer sein.');
@@ -183,7 +211,7 @@ class TreeEditor extends Component
             return;
         }
 
-        $appInputRaw = $this->translitUmlauts(trim((string)$this->newAppName));
+        $appInputRaw = $this->translitUmlauts(trim((string) $this->newAppName));
         if ($appInputRaw !== '') {
             if (preg_match('/\s/u', $appInputRaw)) {
                 $this->addError('newAppName', 'Name darf keine Leerzeichen enthalten.');
@@ -209,10 +237,10 @@ class TreeEditor extends Component
             }
         }
 
-        if (!$this->addWithStructure) {
+        if (! $this->addWithStructure) {
             $effectiveParent = $this->effectiveParentNameForPath($this->selectedNodePath);
             if ($effectiveParent !== null && $effectiveParent !== '') {
-                if (!preg_match('/_' . preg_quote($effectiveParent, '/') . '$/u', $computedAppName)) {
+                if (! preg_match('/_' . preg_quote($effectiveParent, '/') . '$/u', $computedAppName)) {
                     $computedAppName .= '_' . $effectiveParent;
                 }
                 $manual = true;
@@ -220,11 +248,11 @@ class TreeEditor extends Component
         }
 
         $newNode = [
-            'name' => $nameInput,
-            'appName' => $computedAppName,
+            'name'          => $nameInput,
+            'appName'       => $computedAppName,
             'appNameManual' => $manual,
-            'children' => [],
-            'deletable' => true,
+            'children'      => [],
+            'deletable'     => true,
         ];
 
         if ($this->addWithStructure) {
@@ -236,7 +264,9 @@ class TreeEditor extends Component
             );
         }
 
-        $targetPath = $this->pathExists($this->tree, $this->selectedNodePath) ? $this->selectedNodePath : null;
+        $targetPath = $this->pathExists($this->tree, $this->selectedNodePath)
+            ? $this->selectedNodePath
+            : null;
 
         if ($targetPath === null) {
             $this->tree[] = $newNode;
@@ -258,7 +288,9 @@ class TreeEditor extends Component
 
     public function promptDeleteNode($path): void
     {
-        if (!$this->editable) return;
+        if (! $this->editable) {
+            return;
+        }
 
         $this->confirmDeleteNodePath = is_array($path) ? $path : [];
         $this->confirmDeleteNodeName = $this->getNameAtPath($this->tree, $this->confirmDeleteNodePath) ?? '(ohne Name)';
@@ -268,9 +300,11 @@ class TreeEditor extends Component
 
     public function confirmDeleteNode(): void
     {
-        if (!$this->editable) return;
+        if (! $this->editable) {
+            return;
+        }
 
-        if (!empty($this->confirmDeleteNodePath)) {
+        if (! empty($this->confirmDeleteNodePath)) {
             $this->removeNode($this->confirmDeleteNodePath);
         }
         $this->confirmDeleteNodePath = [];
@@ -280,11 +314,17 @@ class TreeEditor extends Component
 
     public function removeNode($path)
     {
-        if (!$this->editable) return;
+        if (! $this->editable) {
+            return;
+        }
 
         $node = $this->getNodeAtPath($this->tree, $path);
-        if (!$node) return;
-        if ($this->isFixedName($node['name'] ?? '')) return;
+        if (! $node) {
+            return;
+        }
+        if ($this->isFixedName($node['name'] ?? '')) {
+            return;
+        }
 
         $parentPath = (is_array($path) && count($path) > 0) ? array_slice($path, 0, -1) : null;
 
@@ -293,7 +333,7 @@ class TreeEditor extends Component
 
         if (is_array($parentPath) && count($parentPath) > 0 && $this->pathExists($this->tree, $parentPath)) {
             $this->selectedNodePath = $parentPath;
-        } elseif (!empty($this->tree)) {
+        } elseif (! empty($this->tree)) {
             $this->selectedNodePath = [0];
         } else {
             $this->selectedNodePath = null;
@@ -308,23 +348,28 @@ class TreeEditor extends Component
         $this->persist();
     }
 
-public function selectNode($path)
-{
-    $this->selectedNodePath = $this->pathExists($this->tree, $path) ? $path : null;
+    public function selectNode($path)
+    {
+        $this->selectedNodePath = $this->pathExists($this->tree, $path) ? $path : null;
 
-    if ($this->selectedNodePath !== null) {
-        $this->dispatch('node-selected', path: $this->selectedNodePath);
+        if ($this->selectedNodePath !== null) {
+            $this->dispatch('node-selected', path: $this->selectedNodePath);
+        }
     }
-}
-
 
     public function startInlineEdit($path, $field)
     {
-        if (!$this->editable) return;
-        if (!in_array($field, ['name', 'appName'])) return;
+        if (! $this->editable) {
+            return;
+        }
+        if (! in_array($field, ['name', 'appName'])) {
+            return;
+        }
 
         $node = $this->getNodeAtPath($this->tree, $path);
-        if (!$node) return;
+        if (! $node) {
+            return;
+        }
 
         $this->editNodePath = $path;
         $this->editField = $field;
@@ -333,10 +378,14 @@ public function selectNode($path)
 
     public function saveInlineEdit($value = null)
     {
-        if (!$this->editable) return;
-        if ($this->editNodePath === null || $this->editField === null) return;
+        if (! $this->editable) {
+            return;
+        }
+        if ($this->editNodePath === null || $this->editField === null) {
+            return;
+        }
 
-        $val = $this->translitUmlauts(trim((string)($value ?? $this->editValue)));
+        $val = $this->translitUmlauts(trim((string) ($value ?? $this->editValue)));
 
         if ($val === '') {
             $this->addError('editValue', 'Name darf nicht leer sein.');
@@ -354,12 +403,12 @@ public function selectNode($path)
         $before = $this->getNodeAtPath($this->tree, $this->editNodePath);
         $oldName = $before['name'] ?? null;
         $oldApp = $before['appName'] ?? null;
-        $wasManual = (bool)($before['appNameManual'] ?? false);
+        $wasManual = (bool) ($before['appNameManual'] ?? false);
 
         $fields = [$this->editField => $val];
 
         if ($this->editField === 'name') {
-            if ($oldName !== null && $oldApp === $oldName && !$wasManual) {
+            if ($oldName !== null && $oldApp === $oldName && ! $wasManual) {
                 $fields['appName'] = $val;
                 $fields['appNameManual'] = false;
             }
@@ -393,70 +442,77 @@ public function selectNode($path)
         $this->generatedJson = json_encode($wrapped, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE);
     }
 
-    public function generateExcel(): void
-    {
-        $this->resetErrorBag('generate');
+  public function generateExcel(): void
+{
+    $this->resetErrorBag('generate');
 
-        $selectedSheets = [];
-        if ($this->sheetGE)     $selectedSheets[] = 'GE';
-        if ($this->sheetAblage) $selectedSheets[] = 'Ablage';
-        if ($this->sheetRoles)  $selectedSheets[] = 'Roles';
+    $selectedSheets = [];
+    if ($this->sheetGE)     $selectedSheets[] = 'GE';
+    if ($this->sheetAblage) $selectedSheets[] = 'Ablage';
+    if ($this->sheetRoles)  $selectedSheets[] = 'Roles';
 
-        if (count($selectedSheets) === 0) {
-            $this->addError('generate', 'Bitte wählen Sie mindestens ein Arbeitsblatt aus.');
-            return;
-        }
-
-        if (!is_int($this->rolesPlaceholderCount)) {
-            $this->rolesPlaceholderCount = (int) $this->rolesPlaceholderCount;
-        }
-        if ($this->sheetRoles && ($this->rolesPlaceholderCount < 1 || $this->rolesPlaceholderCount > 50)) {
-            $this->addError('generate', 'Die Anzahl der Rollen muss zwischen 1 und 50 liegen.');
-            return;
-        }
-
-        $payload = [
-            'tree' => $this->wrapForExport($this->tree),
-            'sheets' => $selectedSheets,
-            'rolesCount' => $this->sheetRoles ? $this->rolesPlaceholderCount : 0,
-        ];
-
-        $port = (string) config('services.python.backend', '8000');
-        $url = 'http://localhost:' . $port . '/generate-excel';
-
-        $res = Http::accept('application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
-            ->post($url, $payload);
-
-        if (!$res->successful()) {
-            $this->addError('generate', 'Excel-Erzeugung fehlgeschlagen.');
-            return;
-        }
-
-        $basename = $this->computeDownloadBasename();
-        $finalName = $basename . '.xlsx';
-
-        Storage::put('temp/' . $finalName, $res->body());
-        $this->downloadFilename = $basename;
-
-        $this->excelOptionsOpen = false;
-        $this->dispatch('excel-ready', filename: $finalName);
+    if (count($selectedSheets) === 0) {
+        $this->addError('generate', 'Bitte wählen Sie mindestens ein Arbeitsblatt aus.');
+        return;
     }
+
+    if (!is_int($this->rolesPlaceholderCount)) {
+        $this->rolesPlaceholderCount = (int) $this->rolesPlaceholderCount;
+    }
+    if ($this->sheetRoles && ($this->rolesPlaceholderCount < 1 || $this->rolesPlaceholderCount > 50)) {
+        $this->addError('generate', 'Die Anzahl der Rollen muss zwischen 1 und 50 liegen.');
+        return;
+    }
+
+    $payload = [
+        'tree'       => $this->wrapForExport($this->tree),
+        'sheets'     => $selectedSheets,
+        'rolesCount' => $this->sheetRoles ? $this->rolesPlaceholderCount : 0,
+    ];
+
+    $port = (string) config('services.python.backend', '8000');
+    $url  = 'http://localhost:' . $port . '/generate-excel';
+
+    $res = Http::accept('application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+        ->post($url, $payload);
+
+    if (!$res->successful()) {
+        $this->addError('generate', 'Excel-Erzeugung fehlgeschlagen.');
+        return;
+    }
+
+    $basename  = $this->computeDownloadBasename();
+    $finalName = $basename . '.xlsx';
+
+    Storage::put('temp/' . $finalName, $res->body());
+
+    $this->downloadFilename = $basename;
+    $this->excelOptionsOpen = false;
+
+    // send ONLY the filename, JS will build the URL
+    $this->dispatch('excel-ready', filename: $finalName);
+}
+
 
     protected function computeDownloadBasename(): string
     {
-        $raw = trim((string)$this->downloadFilename);
+        $raw = trim((string) $this->downloadFilename);
         $base = $raw !== '' ? $raw : ('Importer-Datei-' . ($this->title ?? ''));
         $base = $this->translitUmlauts($base);
         $base = preg_replace('/\.xlsx$/ui', '', $base);
         $base = preg_replace('/[<>:"\/\\\\|?*\x00-\x1F]/u', '-', $base);
         $base = preg_replace('/\s+/u', ' ', $base);
         $base = trim($base, " .-");
-        if ($base === '') $base = 'Importer-Datei';
-        if (mb_strlen($base) > 120) $base = mb_substr($base, 0, 120);
+        if ($base === '') {
+            $base = 'Importer-Datei';
+        }
+        if (mb_strlen($base) > 120) {
+            $base = mb_substr($base, 0, 120);
+        }
         $base = str_replace(' ', '_', $base);
 
         if ($this->withTimestamp) {
-            $timestamp = date("Y-m-d_H-i");
+            $timestamp = date('Y-m-d_H-i');
             $base = $timestamp . '_' . $base;
         }
 
@@ -468,11 +524,14 @@ public function selectNode($path)
         $clean = $this->stripInternal($nodes);
 
         return [[
-            'name' => '.PANKOW', 'appName' => '.PANKOW',
+            'name'     => '.PANKOW',
+            'appName'  => '.PANKOW',
             'children' => [[
-                'name' => 'ba', 'appName' => 'ba',
+                'name'     => 'ba',
+                'appName'  => 'ba',
                 'children' => [[
-                    'name' => 'DigitaleAkte-203', 'appName' => 'DigitaleAkte-203',
+                    'name'     => 'DigitaleAkte-203',
+                    'appName'  => 'DigitaleAkte-203',
                     'children' => $clean,
                 ]],
             ]],
@@ -484,15 +543,15 @@ public function selectNode($path)
         $out = [];
         foreach ($nodes as $n) {
             $row = [
-                'name' => $n['name'] ?? '',
-                'appName' => $n['appName'] ?? ($n['name'] ?? ''),
-                'children' => !empty($n['children']) ? $this->stripInternal($n['children']) : [],
+                'name'     => $n['name'] ?? '',
+                'appName'  => $n['appName'] ?? ($n['name'] ?? ''),
+                'children' => ! empty($n['children']) ? $this->stripInternal($n['children']) : [],
             ];
             if (array_key_exists('enabled', $n)) {
-                $row['enabled'] = (bool)$n['enabled'];
+                $row['enabled'] = (bool) $n['enabled'];
             }
             if (isset($n['description'])) {
-                $row['description'] = (string)$n['description'];
+                $row['description'] = (string) $n['description'];
             }
             $out[] = $row;
         }
@@ -501,7 +560,9 @@ public function selectNode($path)
 
     public function preparePendingMove($fromPath, $toPath, $position = 'into'): void
     {
-        if (!$this->editable) return;
+        if (! $this->editable) {
+            return;
+        }
 
         $this->pendingFromPath = is_array($fromPath) ? $fromPath : [];
         $this->pendingToPath = is_array($toPath) ? $toPath : [];
@@ -534,15 +595,19 @@ public function selectNode($path)
                 ? ($targetIndexOriginal - $shift)
                 : ($targetIndexOriginal - $shift + 1);
 
-            $this->pendingFromIndex = (int)$fromIndex;
-            $this->pendingToIndex = (int)$newIndex;
+            $this->pendingFromIndex = (int) $fromIndex;
+            $this->pendingToIndex = (int) $newIndex;
         }
     }
 
     public function confirmPendingMove(): void
     {
-        if (!$this->editable) return;
-        if (empty($this->pendingFromPath) || empty($this->pendingToPath)) return;
+        if (! $this->editable) {
+            return;
+        }
+        if (empty($this->pendingFromPath) || empty($this->pendingToPath)) {
+            return;
+        }
 
         $this->moveNode($this->pendingFromPath, $this->pendingToPath, $this->pendingPosition);
 
@@ -561,12 +626,20 @@ public function selectNode($path)
 
     public function moveNode($fromPath, $toPath, $position = 'into'): void
     {
-        if (!$this->editable) return;
-        if (!$this->pathExists($this->tree, $fromPath) || !$this->pathExists($this->tree, $toPath)) return;
-        if ($fromPath === $toPath || $this->isAncestorPath($fromPath, $toPath)) return;
+        if (! $this->editable) {
+            return;
+        }
+        if (! $this->pathExists($this->tree, $fromPath) || ! $this->pathExists($this->tree, $toPath)) {
+            return;
+        }
+        if ($fromPath === $toPath || $this->isAncestorPath($fromPath, $toPath)) {
+            return;
+        }
 
         $moved = $this->extractNodeAtPath($this->tree, $fromPath);
-        if ($moved === null) return;
+        if ($moved === null) {
+            return;
+        }
 
         $newPath = null;
 
@@ -576,7 +649,9 @@ public function selectNode($path)
 
             if ($this->pathsShareParent($fromPath, $toPath)) {
                 $fromIndex = end($fromPath);
-                if ($fromIndex < $targetIndex) $targetIndex -= 1;
+                if ($fromIndex < $targetIndex) {
+                    $targetIndex -= 1;
+                }
             }
 
             $insertIndex = ($position === 'before') ? $targetIndex : $targetIndex + 1;
@@ -598,13 +673,15 @@ public function selectNode($path)
 
     public function toggleEnabled($path, $checked): void
     {
-        if (!$this->editable) return;
+        if (! $this->editable) {
+            return;
+        }
 
         $val = is_bool($checked)
             ? $checked
             : (in_array($checked, [1, '1', 'true', 'TRUE', 'on'], true));
 
-        $this->setEnabledAtPath($this->tree, $path, (bool)$val, true);
+        $this->setEnabledAtPath($this->tree, $path, (bool) $val, true);
 
         $this->sanitizeEnabledFlags($this->tree);
         $this->persist();
@@ -612,19 +689,25 @@ public function selectNode($path)
 
     protected function setEnabledAtPath(&$nodes, $path, bool $val, bool $cascade): void
     {
-        if (!is_array($path) || empty($path)) return;
+        if (! is_array($path) || empty($path)) {
+            return;
+        }
         $index = array_shift($path);
-        if (!isset($nodes[$index]) || !is_array($nodes[$index])) return;
+        if (! isset($nodes[$index]) || ! is_array($nodes[$index])) {
+            return;
+        }
 
         if (count($path) === 0) {
             $nodes[$index]['enabled'] = $val;
-            if ($cascade && !empty($nodes[$index]['children']) && is_array($nodes[$index]['children'])) {
+            if ($cascade && ! empty($nodes[$index]['children']) && is_array($nodes[$index]['children'])) {
                 $this->setEnabledRecursive($nodes[$index]['children'], $val);
             }
             return;
         }
 
-        if (!isset($nodes[$index]['children']) || !is_array($nodes[$index]['children'])) return;
+        if (! isset($nodes[$index]['children']) || ! is_array($nodes[$index]['children'])) {
+            return;
+        }
         $this->setEnabledAtPath($nodes[$index]['children'], $path, $val, $cascade);
     }
 
@@ -632,7 +715,7 @@ public function selectNode($path)
     {
         foreach ($nodes as &$n) {
             $n['enabled'] = $val;
-            if (!empty($n['children']) && is_array($n['children'])) {
+            if (! empty($n['children']) && is_array($n['children'])) {
                 $this->setEnabledRecursive($n['children'], $val);
             }
         }
@@ -647,13 +730,13 @@ public function selectNode($path)
             $nextEffective = $this->nextEffectiveParent($childName, $effectiveParentName);
 
             $res[] = [
-                'name' => $childName,
-                'appName' => $appName,
+                'name'          => $childName,
+                'appName'       => $appName,
                 'appNameManual' => false,
-                'children' => !empty($it['children'])
+                'children'      => ! empty($it['children'])
                     ? $this->buildPredefinedChildrenWithParent($it['children'], $nextEffective)
                     : [],
-                'deletable' => !$this->isFixedName($childName),
+                'deletable'     => ! $this->isFixedName($childName),
             ];
         }
         return $res;
@@ -661,10 +744,14 @@ public function selectNode($path)
 
     protected function effectiveParentNameForPath($path): ?string
     {
-        if ($path === null || !is_array($path) || empty($path)) return null;
+        if ($path === null || ! is_array($path) || empty($path)) {
+            return null;
+        }
 
         $parentName = $this->getNameAtPath($this->tree, $path);
-        if ($parentName === null) return null;
+        if ($parentName === null) {
+            return null;
+        }
 
         if ($parentName === 'AblgOE') {
             $gpPath = $path;
@@ -678,13 +765,17 @@ public function selectNode($path)
 
     protected function addChildAtPathSafely(&$nodes, $path, $newNode): bool
     {
-        if ($path === null || !is_array($path) || empty($path)) return false;
+        if ($path === null || ! is_array($path) || empty($path)) {
+            return false;
+        }
 
         $index = array_shift($path);
-        if (!isset($nodes[$index]) || !is_array($nodes[$index])) return false;
+        if (! isset($nodes[$index]) || ! is_array($nodes[$index])) {
+            return false;
+        }
 
         if (count($path) === 0) {
-            if (!isset($nodes[$index]['children']) || !is_array($nodes[$index]['children'])) {
+            if (! isset($nodes[$index]['children']) || ! is_array($nodes[$index]['children'])) {
                 $nodes[$index]['children'] = [];
             }
             $nodes[$index]['children'][] = $newNode;
@@ -696,27 +787,41 @@ public function selectNode($path)
 
     protected function pathExists($nodes, $path): bool
     {
-        if ($path === null) return true;
-        if (!is_array($path)) return false;
+        if ($path === null) {
+            return true;
+        }
+        if (! is_array($path)) {
+            return false;
+        }
 
         $ptr = $nodes;
         foreach ($path as $i) {
-            if (!isset($ptr[$i]) || !is_array($ptr[$i])) return false;
+            if (! isset($ptr[$i]) || ! is_array($ptr[$i])) {
+                return false;
+            }
             $ptr = $ptr[$i]['children'] ?? [];
-            if (!is_array($ptr)) $ptr = [];
+            if (! is_array($ptr)) {
+                $ptr = [];
+            }
         }
         return true;
     }
 
     protected function getNodeAtPath($nodes, $path): ?array
     {
-        if ($path === null || !is_array($path)) return null;
+        if ($path === null || ! is_array($path)) {
+            return null;
+        }
         $ptr = $nodes;
         $last = count($path) - 1;
         foreach ($path as $depth => $idx) {
-            if (!isset($ptr[$idx]) || !is_array($ptr[$idx])) return null;
+            if (! isset($ptr[$idx]) || ! is_array($ptr[$idx])) {
+                return null;
+            }
             $node = $ptr[$idx];
-            if ($depth === $last) return $node;
+            if ($depth === $last) {
+                return $node;
+            }
             $ptr = isset($node['children']) && is_array($node['children']) ? $node['children'] : [];
         }
         return null;
@@ -730,13 +835,17 @@ public function selectNode($path)
 
     protected function setNodeFieldsByPath(&$nodes, $path, $fields)
     {
-        if ($path === null || !is_array($path)) return;
+        if ($path === null || ! is_array($path)) {
+            return;
+        }
 
         $ptr =& $nodes;
         $last = count($path) - 1;
 
         foreach ($path as $depth => $idx) {
-            if (!isset($ptr[$idx]) || !is_array($ptr[$idx])) return;
+            if (! isset($ptr[$idx]) || ! is_array($ptr[$idx])) {
+                return;
+            }
 
             if ($depth === $last) {
                 foreach ($fields as $k => $v) {
@@ -745,13 +854,13 @@ public function selectNode($path)
                 if (($ptr[$idx]['appName'] ?? '') === '') {
                     $ptr[$idx]['appName'] = $ptr[$idx]['name'] ?? '';
                 }
-                if (!isset($ptr[$idx]['appNameManual'])) {
+                if (! isset($ptr[$idx]['appNameManual'])) {
                     $ptr[$idx]['appNameManual'] = false;
                 }
                 return;
             }
 
-            if (!isset($ptr[$idx]['children']) || !is_array($ptr[$idx]['children'])) {
+            if (! isset($ptr[$idx]['children']) || ! is_array($ptr[$idx]['children'])) {
                 $ptr[$idx]['children'] = [];
             }
             $ptr =& $ptr[$idx]['children'];
@@ -761,12 +870,16 @@ public function selectNode($path)
     protected function removeNodeAtPath(&$nodes, $path)
     {
         $index = array_shift($path);
-        if (!isset($nodes[$index])) return;
+        if (! isset($nodes[$index])) {
+            return;
+        }
 
         if (count($path) === 0) {
             array_splice($nodes, $index, 1);
         } else {
-            if (!isset($nodes[$index]['children']) || !is_array($nodes[$index]['children'])) return;
+            if (! isset($nodes[$index]['children']) || ! is_array($nodes[$index]['children'])) {
+                return;
+            }
             $this->removeNodeAtPath($nodes[$index]['children'], $path);
         }
     }
@@ -774,30 +887,36 @@ public function selectNode($path)
     protected function extractNodeAtPath(&$nodes, $path)
     {
         $index = array_shift($path);
-        if (!isset($nodes[$index])) return null;
+        if (! isset($nodes[$index])) {
+            return null;
+        }
 
         if (count($path) === 0) {
             $node = $nodes[$index];
             array_splice($nodes, $index, 1);
             return $node;
         }
-        if (!isset($nodes[$index]['children']) || !is_array($nodes[$index]['children'])) return null;
+        if (! isset($nodes[$index]['children']) || ! is_array($nodes[$index]['children'])) {
+            return null;
+        }
         return $this->extractNodeAtPath($nodes[$index]['children'], $path);
     }
 
     protected function appendChildAtPath(&$nodes, $path, $newNode): void
     {
         $index = array_shift($path);
-        if (!isset($nodes[$index])) return;
+        if (! isset($nodes[$index])) {
+            return;
+        }
 
         if (count($path) === 0) {
-            if (!isset($nodes[$index]['children']) || !is_array($nodes[$index]['children'])) {
+            if (! isset($nodes[$index]['children']) || ! is_array($nodes[$index]['children'])) {
                 $nodes[$index]['children'] = [];
             }
             $nodes[$index]['children'][] = $newNode;
             return;
         }
-        if (!isset($nodes[$index]['children']) || !is_array($nodes[$index]['children'])) {
+        if (! isset($nodes[$index]['children']) || ! is_array($nodes[$index]['children'])) {
             $nodes[$index]['children'] = [];
         }
         $this->appendChildAtPath($nodes[$index]['children'], $path, $newNode);
@@ -807,8 +926,12 @@ public function selectNode($path)
     {
         $ptr =& $nodes;
         foreach ($parentPath as $i) {
-            if (!isset($ptr[$i])) return;
-            if (!isset($ptr[$i]['children']) || !is_array($ptr[$i]['children'])) $ptr[$i]['children'] = [];
+            if (! isset($ptr[$i])) {
+                return;
+            }
+            if (! isset($ptr[$i]['children']) || ! is_array($ptr[$i]['children'])) {
+                $ptr[$i]['children'] = [];
+            }
             $ptr =& $ptr[$i]['children'];
         }
         $insertIndex = max(0, min($insertIndex, count($ptr)));
@@ -818,7 +941,9 @@ public function selectNode($path)
     protected function lastChildIndexAtPath($nodes, $path): int
     {
         $n = $this->getNodeAtPath($nodes, $path);
-        if (!$n) return -1;
+        if (! $n) {
+            return -1;
+        }
         $kids = $n['children'] ?? [];
         return is_array($kids) ? max(count($kids) - 1, -1) : -1;
     }
@@ -828,7 +953,9 @@ public function selectNode($path)
         $names = [];
         $ptr = $this->tree;
         foreach ($path as $idx) {
-            if (!isset($ptr[$idx])) break;
+            if (! isset($ptr[$idx])) {
+                break;
+            }
             $names[] = $ptr[$idx]['name'] ?? '';
             $ptr = isset($ptr[$idx]['children']) && is_array($ptr[$idx]['children']) ? $ptr[$idx]['children'] : [];
         }
@@ -853,16 +980,20 @@ public function selectNode($path)
         return view('livewire.tree-editor');
     }
 
-    /** ==== Helpers restored ============================================ */
-
     protected function invalidNameReason(string $name): ?string
     {
-        if (mb_strlen($name) > 255) return 'Name darf höchstens 255 Zeichen lang sein.';
-        if ($name === '.' || $name === '..') return 'Name darf nicht "." oder ".." sein.';
+        if (mb_strlen($name) > 255) {
+            return 'Name darf höchstens 255 Zeichen lang sein.';
+        }
+        if ($name === '.' || $name === '..') {
+            return 'Name darf nicht "." oder ".." sein.';
+        }
         if (preg_match('/[<>:"\/\\\\|?*]/u', $name) || preg_match('/[\x00-\x1F]/u', $name)) {
             return 'Ungültige Zeichen: < > : \" / \\ | ? * oder Steuerzeichen sind nicht erlaubt.';
         }
-        if (preg_match('/[ \.]$/u', $name)) return 'Name darf nicht mit einem Punkt oder Leerzeichen enden.';
+        if (preg_match('/[ \.]$/u', $name)) {
+            return 'Name darf nicht mit einem Punkt oder Leerzeichen enden.';
+        }
         $norm = rtrim($name, " .");
         $upper = mb_strtoupper($norm);
         $reserved = [
@@ -882,10 +1013,14 @@ public function selectNode($path)
     protected function abbr(string $name): string
     {
         $map = ['Ltg' => 'Ltg', 'Allg' => 'Allg', 'PoEing' => 'Pe', 'SB' => 'Sb'];
-        if (isset($map[$name])) return $map[$name];
+        if (isset($map[$name])) {
+            return $map[$name];
+        }
 
         $letters = preg_replace('/[^A-Za-zÄÖÜäöüß]/u', '', $name);
-        if ($letters === '') return $name;
+        if ($letters === '') {
+            return $name;
+        }
         $first = mb_strtoupper(mb_substr($letters, 0, 1));
         $second = mb_strtolower(mb_substr($letters, 1, 1));
         return $first . $second;
@@ -898,12 +1033,18 @@ public function selectNode($path)
         }
 
         switch ($childName) {
-            case 'Ltg':   return 'Ltg_' . $effectiveParent;
-            case 'Allg':  return 'Allg_' . $effectiveParent;
-            case 'AblgOE':return 'Ab_'  . $effectiveParent;
-            case 'SB':    return 'Sb_'  . $effectiveParent;
-            case 'PoEing':return 'Pe_'  . $effectiveParent;
-            default:      return $effectiveParent . '_' . $this->abbr($childName);
+            case 'Ltg':
+                return 'Ltg_' . $effectiveParent;
+            case 'Allg':
+                return 'Allg_' . $effectiveParent;
+            case 'AblgOE':
+                return 'Ab_' . $effectiveParent;
+            case 'SB':
+                return 'Sb_' . $effectiveParent;
+            case 'PoEing':
+                return 'Pe_' . $effectiveParent;
+            default:
+                return $effectiveParent . '_' . $this->abbr($childName);
         }
     }
 
@@ -917,24 +1058,28 @@ public function selectNode($path)
         foreach ($nodes as &$n) {
             $name = $n['name'] ?? '';
 
-            if (!isset($n['appName']) || $n['appName'] === '') $n['appName'] = $name;
-            if (!isset($n['appNameManual'])) $n['appNameManual'] = false;
+            if (! isset($n['appName']) || $n['appName'] === '') {
+                $n['appName'] = $name;
+            }
+            if (! isset($n['appNameManual'])) {
+                $n['appNameManual'] = false;
+            }
 
             $effectiveParent = ($parentName === 'AblgOE') ? $grandparentName : $parentName;
             $nextEffectiveParent = $this->nextEffectiveParent($name, $effectiveParent);
 
-            if (!empty($n['children']) && is_array($n['children'])) {
+            if (! empty($n['children']) && is_array($n['children'])) {
                 foreach ($n['children'] as &$child) {
                     $childName = $child['name'] ?? '';
                     $manual = isset($child['appNameManual']) && $child['appNameManual'] === true;
 
-                    if (!$manual) {
+                    if (! $manual) {
                         $keep = isset($child['appName']) && $child['appName'] === $childName;
-                        if (!$keep) {
+                        if (! $keep) {
                             $child['appName'] = $this->composeAppName($nextEffectiveParent, $childName);
                         }
                     }
-                    if (!isset($child['appNameManual'])) {
+                    if (! isset($child['appNameManual'])) {
                         $child['appNameManual'] = $manual;
                     }
                 }
@@ -946,8 +1091,12 @@ public function selectNode($path)
     protected function translitUmlauts(string $s): string
     {
         $map = [
-            'Ä' => 'Ae', 'Ö' => 'Oe', 'Ü' => 'Ue',
-            'ä' => 'ae', 'ö' => 'oe', 'ü' => 'ue',
+            'Ä' => 'Ae',
+            'Ö' => 'Oe',
+            'Ü' => 'Ue',
+            'ä' => 'ae',
+            'ö' => 'oe',
+            'ü' => 'ue',
             'ß' => 'ss',
         ];
         return strtr($s, $map);
@@ -969,9 +1118,9 @@ public function selectNode($path)
         if (
             count($data) === 1 &&
             isset($data[0]['name']) && $data[0]['name'] === '.PANKOW' &&
-            !empty($data[0]['children']) &&
+            ! empty($data[0]['children']) &&
             isset($data[0]['children'][0]['name']) && $data[0]['children'][0]['name'] === 'ba' &&
-            !empty($data[0]['children'][0]['children']) &&
+            ! empty($data[0]['children'][0]['children']) &&
             isset($data[0]['children'][0]['children'][0]['name']) &&
             $data[0]['children'][0]['children'][0]['name'] === 'DigitaleAkte-203'
         ) {
@@ -982,16 +1131,22 @@ public function selectNode($path)
 
     protected function pathsShareParent(array $a, array $b): bool
     {
-        if (count($a) !== count($b)) return false;
+        if (count($a) !== count($b)) {
+            return false;
+        }
         return $this->isAncestorPath(array_slice($a, 0, -1), $b)
             && count($a) - 1 === count(array_slice($b, 0, -1));
     }
 
     protected function isAncestorPath(array $a, array $b): bool
     {
-        if (count($a) >= count($b)) return false;
+        if (count($a) >= count($b)) {
+            return false;
+        }
         for ($i = 0; $i < count($a); $i++) {
-            if ($a[$i] !== $b[$i]) return false;
+            if ($a[$i] !== $b[$i]) {
+                return false;
+            }
         }
         return true;
     }
@@ -999,8 +1154,8 @@ public function selectNode($path)
     protected function sanitizeDeletionFlags(array &$nodes): void
     {
         foreach ($nodes as &$n) {
-            $n['deletable'] = !$this->isFixedName($n['name'] ?? '');
-            if (!empty($n['children']) && is_array($n['children'])) {
+            $n['deletable'] = ! $this->isFixedName($n['name'] ?? '');
+            if (! empty($n['children']) && is_array($n['children'])) {
                 $this->sanitizeDeletionFlags($n['children']);
             }
         }
@@ -1009,17 +1164,17 @@ public function selectNode($path)
     protected function sanitizeEnabledFlags(array &$nodes, bool $underAblgOE = false): void
     {
         foreach ($nodes as &$n) {
-            $name = (string)($n['name'] ?? '');
-            $hasChildren = !empty($n['children']) && is_array($n['children']);
+            $name = (string) ($n['name'] ?? '');
+            $hasChildren = ! empty($n['children']) && is_array($n['children']);
             $isAblg = ($name === 'AblgOE');
 
             $eligible = $underAblgOE || in_array($name, ['Ltg', 'Allg'], true);
 
             if ($eligible) {
-                if (!array_key_exists('enabled', $n)) {
+                if (! array_key_exists('enabled', $n)) {
                     $n['enabled'] = true;
                 } else {
-                    $n['enabled'] = (bool)$n['enabled'];
+                    $n['enabled'] = (bool) $n['enabled'];
                 }
             } else {
                 if (array_key_exists('enabled', $n)) {
@@ -1035,6 +1190,6 @@ public function selectNode($path)
 
     protected function isFixedName(?string $name): bool
     {
-        return in_array((string)$name, $this->fixedNames, true);
+        return in_array((string) $name, $this->fixedNames, true);
     }
 }
