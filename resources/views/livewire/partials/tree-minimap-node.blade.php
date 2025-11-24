@@ -39,7 +39,11 @@
 @endphp
 
 
-<li class="truncate">
+<li
+    class="truncate"
+    data-minimap-node
+    data-path='@json($path)'
+>
     {{-- Row with icon + name:appName; clear disabled visual --}}
     <div class="flex items-center gap-2 px-1 rounded
                 {{ $isSelected ? 'bg-gray-100 dark:bg-gray-700' : '' }}
@@ -56,15 +60,14 @@
             wire:click="selectNode({{ json_encode($path) }})"
             title="{{ $name }} : {{ $appName }}{{ $isDisabled ? ' (ausgeblendet)' : '' }}"
         >
-            {{-- Eye-slash when ausgeblendet --}}
-            {{-- Name : appName (clean, compact) --}}
+            {{-- Name : appName (clean, compact, both struck through if disabled) --}}
             <span class="truncate {{ $isDisabled ? 'line-through' : '' }}">
                 {{ $name }}
             </span>
 
             <span class="text-gray-400 dark:text-gray-300">:</span>
 
-            <span class="truncate text-[10px] text-gray-500 dark:text-gray-300 italic">
+            <span class="truncate text-[10px] text-gray-500 dark:text-gray-300 italic {{ $isDisabled ? 'line-through' : '' }}">
                 {{ $appName }}
             </span>
         </button>

@@ -1,8 +1,7 @@
-{{-- resources/views/livewire/tree-editor.blade.php --}}
 <div class="w-full">
     {{-- Main layout: left editor + (optional) right minimap --}}
     <div
-        class="mx-auto h-screen overflow-hidden flex gap-4 px-4 relative"
+        class="w-2/3 mx-auto h-screen overflow-hidden flex gap-4 px-4 relative"
         x-data="{ minimapOpen: true }"
     >
         {{-- LEFT: main editor --}}
@@ -177,35 +176,42 @@
 
         {{-- RIGHT: Minimap column (whole column collapsible) --}}
         <div
-            class="hidden lg:flex flex-col h-screen pt-6 w-72 min-h-0"
+            class="cursor-pointer hidden lg:flex flex-col h-screen pt-6 w-72 min-h-0"
             x-show="minimapOpen"
             x-transition
         >
-            <flux:card class="flex-1 flex flex-col text-xs min-h-0 overflow-hidden">
+            <flux:card class="flex-1 flex flex-col text-xs min-h-0">
                 {{-- Minimap header --}}
                 <div class="flex items-center justify-between px-3 py-2 border-b border-gray-200 dark:border-gray-700 shrink-0">
                     <span class="font-semibold text-sm">Baum-Übersicht</span>
                     <button
                         type="button"
-                        class="text-[11px] text-gray-500 hover:text-gray-800 dark:text-gray-300"
+                        class="cursor-pointer text-[11px] text-gray-500 hover:text-gray-800 dark:text-gray-300"
                         @click.stop="minimapOpen = false"
                     >
                         schließen
                     </button>
                 </div>
 
-                {{-- Scrollable minimap content (vertical + horizontal) --}}
-                <div class="flex-1 min-h-0 overflow-x-auto overflow-y-auto px-3 py-2 space-y-1">
+                {{-- Scrollable minimap content (vertical + horizontal, with extra bottom padding + spacer) --}}
+                <div
+                    class="flex-1 min-h-0 overflow-x-auto overflow-y-auto px-3 py-2"
+                    data-minimap-root
+                >
                     @if(!empty($tree))
-                        <ul class="space-y-1 min-w-max">
-                            @foreach($tree as $index => $node)
-                                @include('livewire.partials.tree-minimap-node', [
-                                    'node'             => $node,
-                                    'path'             => [$index],
-                                    'selectedNodePath' => $selectedNodePath ?? null,
-                                ])
-                            @endforeach
-                        </ul>
+                        <div class="min-w-max space-y-1">
+                            <ul class="space-y-1 pb-40">
+                                @foreach($tree as $index => $node)
+                                    @include('livewire.partials.tree-minimap-node', [
+                                        'node'             => $node,
+                                        'path'             => [$index],
+                                        'selectedNodePath' => $selectedNodePath ?? null,
+                                    ])
+                                @endforeach
+                            </ul>
+                            {{-- Extra spacer so the last node isn't glued to the bottom --}}
+                            <div class="h-16"></div>
+                        </div>
                     @else
                         <p class="text-[11px] text-gray-500">
                             Keine Knoten vorhanden.
@@ -219,7 +225,10 @@
         <button
             type="button"
             class="hidden lg:flex items-center justify-center absolute top-1/2 right-0 -translate-y-1/2 w-6 h-16 rounded-l-full
-                   bg-gray-200 dark:bg-gray-700 shadow border border-gray-300 dark:border-gray-600"
+       bg-indigo-100 dark:bg-indigo-900 border border-indigo-300 dark:border-indigo-700 shadow-sm cursor-pointer hover:bg-indigo-200"
+
+
+
             x-show="!minimapOpen"
             x-transition
             @click="minimapOpen = true"
@@ -281,7 +290,7 @@
       // Drag & drop helpers (only when editable)
       const RING        = 'ring-1 ring-offset-1 dark:ring-offset-0 ring-blue-400 dark:ring-blue-500 rounded';
       const RING_BEFORE = 'ring-1 ring-offset-1 dark:ring-offset-0 ring-emerald-400 dark:ring-emerald-500 rounded';
-      const RING_AFTER  = 'ring-1 ring-offset-1 dark:ring-offset-0 ring-amber-400  dark:ring-amber-500  rounded';
+      const RING_AFTER  = 'ring-1 ring-offset-1 dark:ring-offset-0 ring-amber-400  dark:ring-amber-500 rounded';
       const tok = (s) => (s || '').trim().split(/\s+/);
 
       function lwInst(el){
@@ -412,35 +421,65 @@
           if (opener) opener.click();
       });
 
-      // Scroll main tree to selected node (from minimap or main tree)
+      // Scroll main tree + minimap to selected node
       window.addEventListener('node-selected', event => {
           const path = event.detail.path || [];
+
+          // ---- Main tree scroll ----
           const root = document.querySelector('[data-tree-root]');
-          if (!root) return;
+          if (root) {
+              const all = root.querySelectorAll('[data-tree-node]');
+              let target = null;
 
-          const all = root.querySelectorAll('[data-tree-node]');
-          let target = null;
+              for (const el of all) {
+                  try {
+                      const p = JSON.parse(el.dataset.path || '[]');
+                      if (JSON.stringify(p) === JSON.stringify(path)) {
+                          target = el;
+                          break;
+                      }
+                  } catch (e) {}
+              }
 
-          for (const el of all) {
-              try {
-                  const p = JSON.parse(el.dataset.path || '[]');
-                  if (JSON.stringify(p) === JSON.stringify(path)) {
-                      target = el;
-                      break;
-                  }
-              } catch (e) {}
+              if (target) {
+                  const rootRect = root.getBoundingClientRect();
+                  const targetRect = target.getBoundingClientRect();
+                  const offset = targetRect.top - rootRect.top;
+
+                  root.scrollTo({
+                      top: root.scrollTop + offset - root.clientHeight / 3,
+                      behavior: 'smooth',
+                  });
+              }
           }
 
-          if (!target) return;
+          // ---- Minimap scroll ----
+          const minimap = document.querySelector('[data-minimap-root]');
+          if (minimap) {
+              const nodes = minimap.querySelectorAll('[data-minimap-node]');
+              let miniTarget = null;
 
-          const rootRect = root.getBoundingClientRect();
-          const targetRect = target.getBoundingClientRect();
-          const offset = targetRect.top - rootRect.top;
+              for (const el of nodes) {
+                  try {
+                      const p = JSON.parse(el.dataset.path || '[]');
+                      if (JSON.stringify(p) === JSON.stringify(path)) {
+                          miniTarget = el;
+                          break;
+                      }
+                  } catch (e) {}
+              }
 
-          root.scrollTo({
-              top: root.scrollTop + offset - root.clientHeight / 3,
-              behavior: 'smooth',
-          });
+              if (miniTarget) {
+                  const miniRect = minimap.getBoundingClientRect();
+                  const targetRect = miniTarget.getBoundingClientRect();
+                  const offset = targetRect.top - miniRect.top;
+
+                  minimap.scrollTo({
+                      top: minimap.scrollTop + offset - minimap.clientHeight / 3,
+                      behavior: 'smooth',
+                  });
+              }
+          }
       });
     })();
     </script>
