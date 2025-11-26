@@ -1,7 +1,7 @@
 <div class="w-full">
     {{-- Main layout: left editor + (optional) right minimap --}}
     <div
-        class="w-2/3 mx-auto h-screen overflow-hidden flex gap-4 px-4 pt-4 pb-4 box-border relative"
+        class="w-2/3 mx-auto h-screen overflow-hidden flex gap-4 px-4 relative"
         x-data="{ minimapOpen: true }"
     >
         {{-- LEFT: main editor --}}
@@ -116,7 +116,7 @@
                         <flux:accordion.content>
                             {{-- Main tree area (controls drag & drop availability) --}}
                             <flux:card
-                                class="overflow-auto !max-h-[calc(100vh-16rem)]"
+                                class="h-[48vh] overflow-auto"
                                 data-tree-root
                                 data-editable="{{ ($editable ?? false) ? 1 : 0 }}"
                             >
@@ -164,14 +164,13 @@
             @include('livewire.partials.modal-excel-options')
         </div>
 
-        {{-- RIGHT: Minimap column (whole column collapsible) --}}
+        {{-- RIGHT: Minimap column --}}
         <div
             class="cursor-pointer hidden lg:flex flex-col h-screen pt-6 w-72 min-h-0"
             x-show="minimapOpen"
             x-transition
         >
             <flux:card class="flex-1 flex flex-col text-xs min-h-0">
-                {{-- Minimap header --}}
                 <div class="flex items-center justify-between px-3 py-2 border-b border-gray-200 dark:border-gray-700 shrink-0">
                     <span class="font-semibold text-sm">Baum-Übersicht</span>
                     <button
@@ -183,9 +182,8 @@
                     </button>
                 </div>
 
-                {{-- Scrollable minimap content (vertical + horizontal, with extra bottom padding + spacer) --}}
                 <div
-                    class="flex-1 min-h-0 overflow-x-auto overflow-y-auto px-3 py-2 max-h-[calc(100vh-16rem)]"
+                    class="flex-1 min-h-0 overflow-x-auto overflow-y-auto px-3 py-2"
                     data-minimap-root
                 >
                     @if(!empty($tree))
@@ -199,7 +197,6 @@
                                     ])
                                 @endforeach
                             </ul>
-                            {{-- Extra spacer so the last node isn't glued to the bottom --}}
                             <div class="h-16"></div>
                         </div>
                     @else
@@ -211,14 +208,11 @@
             </flux:card>
         </div>
 
-        {{-- Reopen handle when minimap is collapsed --}}
+        {{-- Reopen handle --}}
         <button
             type="button"
             class="hidden lg:flex items-center justify-center absolute top-1/2 right-0 -translate-y-1/2 w-6 h-16 rounded-l-full
        bg-indigo-100 dark:bg-indigo-900 border border-indigo-300 dark:border-indigo-700 shadow-sm cursor-pointer hover:bg-indigo-200"
-
-
-
             x-show="!minimapOpen"
             x-transition
             @click="minimapOpen = true"
@@ -231,14 +225,12 @@
     @script
     <script>
     (function () {
-      // Check edit mode for drag & drop
       function isTreeEditable() {
         const root = document.querySelector('[data-tree-root]');
         if (!root) return false;
         return root.dataset.editable === '1';
       }
 
-      // Title inline edit (dblclick / blur / Enter / Esc)
       const titleEl = document.getElementById('tree-title-input');
       if (titleEl) {
         const ACTIVE_RING = 'ring-1 ring-blue-400 dark:ring-blue-500 rounded';
@@ -271,13 +263,11 @@
         });
       }
 
-      // Focus new node input on custom event
       window.addEventListener('focus-newnode', () => {
         const el = document.getElementById('new-node-input');
         if (el) { el.focus(); el.select?.(); }
       });
 
-      // Drag & drop helpers (only when editable)
       const RING        = 'ring-1 ring-offset-1 dark:ring-offset-0 ring-blue-400 dark:ring-blue-500 rounded';
       const RING_BEFORE = 'ring-1 ring-offset-1 dark:ring-offset-0 ring-emerald-400 dark:ring-emerald-500 rounded';
       const RING_AFTER  = 'ring-1 ring-offset-1 dark:ring-offset-0 ring-amber-400  dark:ring-amber-500 rounded';
