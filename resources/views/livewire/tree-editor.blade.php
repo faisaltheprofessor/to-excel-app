@@ -1,7 +1,7 @@
 <div class="w-full">
     {{-- Main layout: left editor + (optional) right minimap --}}
     <div
-        class="w-2/3 mx-auto h-screen overflow-hidden flex gap-4 px-4 relative"
+        class="w-2/3 mx-auto h-screen overflow-hidden flex gap-4 px-4 pt-4 pb-4 box-border relative"
         x-data="{ minimapOpen: true }"
     >
         {{-- LEFT: main editor --}}
@@ -116,7 +116,7 @@
                         <flux:accordion.content>
                             {{-- Main tree area (controls drag & drop availability) --}}
                             <flux:card
-                                class="h-[48vh] overflow-auto"
+                                class="overflow-auto !max-h-[calc(100vh-16rem)]"
                                 data-tree-root
                                 data-editable="{{ ($editable ?? false) ? 1 : 0 }}"
                             >
@@ -185,7 +185,7 @@
 
                 {{-- Scrollable minimap content (vertical + horizontal, with extra bottom padding + spacer) --}}
                 <div
-                    class="flex-1 min-h-0 overflow-x-auto overflow-y-auto px-3 py-2"
+                    class="flex-1 min-h-0 overflow-x-auto overflow-y-auto px-3 py-2 max-h-[calc(100vh-16rem)]"
                     data-minimap-root
                 >
                     @if(!empty($tree))

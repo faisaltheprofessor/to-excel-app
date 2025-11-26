@@ -30,8 +30,6 @@ USE_GROUP_BOTTOM = False
 USE_BLANK_BEFORE_PARENT = True
 
 DISABLED_BLUE = PatternFill("solid", fgColor="9FB7D9")
-
-# Distinct fill for PoKorb rows so they are visually separated
 POKORB_FILL = PatternFill("solid", fgColor="FFF2CC")
 
 
@@ -126,7 +124,10 @@ def write_group_recursive(ws, node, r, path_names, path_apps, poeings):
 
     full_names_path = path_names + [name]
     perm_key = build_group_key_from_names(full_names_path)
-    ancestor_keys = [build_group_key_from_names(full_names_path[:i]) for i in range(1, len(full_names_path) + 1)]
+    ancestor_keys = [
+        build_group_key_from_names(full_names_path[:i])
+        for i in range(1, len(full_names_path) + 1)
+    ]
 
     values = [
         display_a,
@@ -146,7 +147,8 @@ def write_group_recursive(ws, node, r, path_names, path_apps, poeings):
     h_list = [make_addr(perm_key, "")]
     i_list = [make_addr(perm_key, "FA")]
     j_list_vals = [make_addr(k, "LA") for k in ancestor_keys]
-    k_list = [make_addr(perm_key, "AA")]
+    # CHANGED: Ablageadmin now also uses all ancestor keys (like Löschadmin)
+    k_list = [make_addr(k, "AA") for k in ancestor_keys]
 
     for offset, items in enumerate([g_list, h_list, i_list, j_list_vals, k_list], start=7):
         cell_val = ";".join(items) + f";{ADMIN_ACCOUNT}"
@@ -228,7 +230,6 @@ def add_second_sheet(wb: Workbook, tree):
         all_poeings.extend(poe)
         r += 1
 
-    # --- PoKorb rows: distinct background + medium top border at start of list ---
     first_pokorb_row = None
 
     for pe in all_poeings:
@@ -260,7 +261,6 @@ def add_second_sheet(wb: Workbook, tree):
             cell.font = font
             cell.border = BOX2
 
-        # Mark the first PoKorb row with a medium top border to start the list
         if first_pokorb_row is None:
             first_pokorb_row = r
             from openpyxl.styles import Border, Side
