@@ -6,6 +6,8 @@ use Illuminate\Database\Eloquent\Model;
 
 class OrganizationStructure extends Model
 {
+
+    protected $fillable = ['title'];
     protected $casts = [
         'data' => 'array',
     ];
