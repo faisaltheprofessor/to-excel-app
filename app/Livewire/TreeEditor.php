@@ -289,101 +289,113 @@ class TreeEditor extends Component
      * Add a new node either at root or under selected node.
      */
     public function addNode(): void
-    {
-        if (! $this->editable) {
-            return;
-        }
-
-        $nameInput = $this->translitUmlauts(trim((string) $this->newNodeName));
-
-        if ($nameInput === '') {
-            $this->addError('newNodeName', 'Name darf nicht leer sein.');
-            return;
-        }
-        if (preg_match('/\s/u', $nameInput)) {
-            $this->addError('newNodeName', 'Name darf keine Leerzeichen enthalten.');
-            return;
-        }
-        if ($reason = $this->invalidNameReason($nameInput)) {
-            $this->addError('newNodeName', $reason);
-            return;
-        }
-
-        $appInputRaw = $this->translitUmlauts(trim((string) $this->newAppName));
-        if ($appInputRaw !== '') {
-            if (preg_match('/\s/u', $appInputRaw)) {
-                $this->addError('newAppName', 'Name darf keine Leerzeichen enthalten.');
-                return;
-            }
-            if ($reason = $this->invalidNameReason($appInputRaw)) {
-                $this->addError('newAppName', $reason);
-                return;
-            }
-        }
-
-        $manual = false;
-
-        if ($appInputRaw !== '') {
-            $computedAppName = $this->normalizeSbPrefix($appInputRaw);
-            $manual          = true;
-        } else {
-            $fromName = $this->normalizeSbPrefix($nameInput);
-            if ($fromName !== $nameInput) {
-                $computedAppName = $fromName;
-                $manual          = true;
-            } else {
-                $computedAppName = $nameInput;
-            }
-        }
-
-        if (! $this->addWithStructure) {
-            $effectiveParent = $this->effectiveParentNameForPath($this->selectedNodePath);
-            if ($effectiveParent !== null && $effectiveParent !== '') {
-                if (! preg_match('/_' . preg_quote($effectiveParent, '/') . '$/u', $computedAppName)) {
-                    $computedAppName .= '_' . $effectiveParent;
-                }
-                $manual = true;
-            }
-        }
-
-        $newNode = [
-            'name'          => $nameInput,
-            'appName'       => $computedAppName,
-            'appNameManual' => $manual,
-            'children'      => [],
-            'deletable'     => true,
-        ];
-
-        if ($this->addWithStructure) {
-            $parentAtPath          = $this->effectiveParentNameForPath($this->selectedNodePath);
-            $effectiveForChildren  = $this->nextEffectiveParent($nameInput, $parentAtPath);
-            $newNode['children']   = $this->buildPredefinedChildrenWithParent(
-                $this->predefinedStructure,
-                $effectiveForChildren
-            );
-        }
-
-        $targetPath = $this->pathExists($this->tree, $this->selectedNodePath)
-            ? $this->selectedNodePath
-            : null;
-
-        if ($targetPath === null) {
-            $this->tree[] = $newNode;
-        } else {
-            $this->addChildAtPathSafely($this->tree, $targetPath, $newNode);
-        }
-
-        $this->refreshAppNames($this->tree, null, null);
-        $this->sanitizeEnabledFlags($this->tree);
-        $this->sanitizeDeletionFlags($this->tree);
-        $this->persist();
-
-        $this->newNodeName     = '';
-        $this->newAppName      = '';
-        $this->addWithStructure = false;
-
-        $this->dispatch('focus-newnode');
+{
+    if (! $this->editable) {
+        return;
     }
+
+    // Validate and normalize node name
+    $nameInput = $this->translitUmlauts(trim((string) $this->newNodeName));
+    if ($nameInput === '') {
+        $this->addError('newNodeName', 'Name darf nicht leer sein.');
+        return;
+    }
+    if (preg_match('/\s/u', $nameInput)) {
+        $this->addError('newNodeName', 'Name darf keine Leerzeichen enthalten.');
+        return;
+    }
+    if ($reason = $this->invalidNameReason($nameInput)) {
+        $this->addError('newNodeName', $reason);
+        return;
+    }
+
+    // Validate user-defined appName
+    $appInputRaw = $this->translitUmlauts(trim((string) $this->newAppName));
+    if ($appInputRaw !== '') {
+        if (preg_match('/\s/u', $appInputRaw)) {
+            $this->addError('newAppName', 'Name darf keine Leerzeichen enthalten.');
+            return;
+        }
+        if ($reason = $this->invalidNameReason($appInputRaw)) {
+            $this->addError('newAppName', $reason);
+            return;
+        }
+    }
+
+    // Determine appName
+    $manual = false;
+    $computedAppName = '';
+
+    if ($appInputRaw !== '') {
+        // User-defined appName: use exactly as provided
+        $computedAppName = $appInputRaw;
+        $manual = true;
+    } else {
+        // Auto-generate base appName
+        $fromName = $this->normalizeSbPrefix($nameInput);
+        if ($fromName !== $nameInput) {
+            $computedAppName = $fromName;
+            $manual = true;
+        } else {
+            $computedAppName = $nameInput;
+        }
+    }
+
+    // Auto suffix only for system-generated appNames
+    if (! $this->addWithStructure && ! $manual) {
+        $parent = $this->effectiveParentNameForPath($this->selectedNodePath);
+        if ($parent !== null && $parent !== '') {
+            if (! preg_match('/_' . preg_quote($parent, '/') . '$/u', $computedAppName)) {
+                $computedAppName .= '_' . $parent;
+            }
+            $manual = true;
+        }
+    }
+
+    // Construct node structure
+    $newNode = [
+        'name'          => $nameInput,
+        'appName'       => $computedAppName,
+        'appNameManual' => $manual,
+        'children'      => [],
+        'deletable'     => true,
+    ];
+
+    // Optional predefined subtree
+    if ($this->addWithStructure) {
+        $parentForPath = $this->effectiveParentNameForPath($this->selectedNodePath);
+        $effective     = $this->nextEffectiveParent($nameInput, $parentForPath);
+        $newNode['children'] = $this->buildPredefinedChildrenWithParent(
+            $this->predefinedStructure,
+            $effective
+        );
+    }
+
+    // Insert node at correct location
+    $targetPath = $this->pathExists($this->tree, $this->selectedNodePath)
+        ? $this->selectedNodePath
+        : null;
+
+    if ($targetPath === null) {
+        $this->tree[] = $newNode;
+    } else {
+        $this->addChildAtPathSafely($this->tree, $targetPath, $newNode);
+    }
+
+    // Post-processing: refresh names, flags, persist
+    $this->refreshAppNames($this->tree, null, null);
+    $this->sanitizeEnabledFlags($this->tree);
+    $this->sanitizeDeletionFlags($this->tree);
+    $this->persist();
+
+    // Reset inputs
+    $this->newNodeName      = '';
+    $this->newAppName       = '';
+    $this->addWithStructure = false;
+
+    $this->dispatch('focus-newnode');
+}
+
 
     /**
      * Open confirmation modal for node deletion.
@@ -881,7 +893,7 @@ class TreeEditor extends Component
             ? $checked
             : in_array($checked, [1, '1', 'true', 'TRUE', 'on'], true);
 
-        $this->setEnabledAtPath($this->tree, $path, (bool) $val, true);
+        $this->setEnabledAtPath($this->tree, $path, (bool) $val, false);
         $this->sanitizeEnabledFlags($this->tree);
         $this->persist();
     }
