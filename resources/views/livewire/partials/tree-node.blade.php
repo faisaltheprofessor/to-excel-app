@@ -174,8 +174,9 @@
                     color="danger"
                     size="sm"
                     title="Knoten löschen"
+                    :disabled="!$editable"
                 >
-                    <flux:icon.trash class="w-4 h-4"/>
+                    <flux:icon.trash class="w-4 h-4 cursor-pointer"/>
                 </flux:button>
             @endif
         </div>
