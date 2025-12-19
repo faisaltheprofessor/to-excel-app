@@ -89,6 +89,23 @@
 
     {{ $slot }}
     <flux:separator variant="subtle"/>
+
+    <flux:container
+    class="fixed bottom-0 left-0 right-0 z-50 border-t border-zinc-200/70
+           bg-white/85 backdrop-blur supports-[backdrop-filter]:bg-white/65
+           dark:border-zinc-800/70 dark:bg-zinc-950/75
+           dark:supports-[backdrop-filter]:bg-zinc-950/55"
+>
+    <div class="flex h-11 items-center justify-end px-4 sm:px-6">
+        <flux:text class="text-xs" variant="subtle">
+            Entwickelt mit
+            <span class="text-red-500 dark:text-red-400">❤️</span>
+            von
+            <span class="font-medium text-zinc-900 dark:text-zinc-100">Faisal</span>.
+        </flux:text>
+    </div>
+</flux:container>
+
 </flux:main>
 
 
